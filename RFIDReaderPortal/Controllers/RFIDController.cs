@@ -208,7 +208,7 @@ namespace RFIDReaderPortal.Controllers
                     ViewBag.Tokens = newTokenFromGetAsync;
                     Response.Cookies.Append("accesstoken", newTokenFromGetAsync);
                     accessToken = newTokenFromGetAsync;
-                }
+                } 
 
                 string Eventid = formData.EventId;
                 string Location = formData.Location;

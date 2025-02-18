@@ -40,7 +40,7 @@ namespace RFIDReaderPortal.Services
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-
+            
             var response = await _httpClient.SendAsync(request);
 
             if (response.IsSuccessStatusCode)

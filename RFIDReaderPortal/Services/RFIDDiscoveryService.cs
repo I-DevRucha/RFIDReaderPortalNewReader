@@ -116,7 +116,7 @@ namespace RFIDReaderPortal.Services
 
                 // If IP addresses are found, return them with a success message
                 statusMessage = "IP addresses discovered successfully.";
-            }
+            } 
             catch (Exception ex)
             {
                 statusMessage = $"An error occurred while detecting the network: {ex.Message}";
