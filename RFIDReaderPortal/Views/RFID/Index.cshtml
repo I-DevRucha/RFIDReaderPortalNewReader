@@ -21,10 +21,7 @@
                 <div class="mb-3">
                     <label for="deviceName" class="form-label">Device Name:</label>
                     <input type="text" id="deviceName" class="form-control" value="@(Model.ReaderIPs?.FirstOrDefault() ?? "")" readonly>
-                    @if (!string.IsNullOrEmpty(Model.StatusMessage))
-                    {
-                        <small class="text-muted">@Model.StatusMessage</small>
-                    }
+                   
                 </div>
 
                 <div class="mb-3">
@@ -53,6 +50,7 @@
 
                 <input type="hidden" id="access_token" value="@ViewData["AccessToken"]" />
                 <button type="submit" class="btn btn-primary" onclick="SubmitButton(event)">Submit</button>
+                <button id="resetButton" type="button" class="btn btn-warning me-2" onclick="window.location.href='@Url.Action("Login", "Account")'">Back</button>
             </form>
         </div>
     </div>
@@ -80,78 +78,78 @@
             </text>
         }
 
-        function SubmitButton(event) {
-            // Prevent the default form submission
-            event.preventDefault();
+            function SubmitButton(event) {
+                // Prevent the default form submission
+                event.preventDefault();
 
-            // Get access token and input values
-            var accessToken = document.getElementById('access_token').value;
-            var deviceName = $('#deviceName').val();
-            var eventDropdown = $('#eventDropdown').val();
-            var locationDropdown = $('#locationDropdown').val();
+                // Get access token and input values
+                var accessToken = document.getElementById('access_token').value;
+                var deviceName = $('#deviceName').val();
+                var eventDropdown = $('#eventDropdown').val();
+                var locationDropdown = $('#locationDropdown').val();
 
-            // Use Razor to get server-side values for UserId and RecruitId
-            const userid = '@ViewBag.UserId';
-            const recruitid = '@ViewBag.RecruitId';
+                // Use Razor to get server-side values for UserId and RecruitId
+                const userid = '@ViewBag.UserId';
+                const recruitid = '@ViewBag.RecruitId';
 
-            // Construct the data object for the AJAX request
-            var data = {
-                DeviceId: deviceName,
-                EventId: eventDropdown,
-                Location: locationDropdown,
-                UserId: userid,
-                RecruitId: recruitid
-            };
+                // Construct the data object for the AJAX request
+                var data = {
+                    DeviceId: deviceName,
+                    EventId: eventDropdown,
+                    Location: locationDropdown,
+                    UserId: userid,
+                    RecruitId: recruitid
+                };
 
-            // Perform the AJAX request
-            $.ajax({
-                url: '/RFID/SubmitButton',
-                type: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify(data),
-                headers: {
-                    'Authorization': 'Bearer ' + accessToken
-                },
-                success: function (response) {
-                    if (response.success) {
-                        // Show success message and redirect
-                        Swal.fire({
-                            title: 'Success!',
-                            text: 'Configuration data inserted successfully!',
-                            icon: 'success',
-                            confirmButtonText: 'OK'
-                        }).then((result) => {
-                            if (result.isConfirmed) {
-                                window.location.href = response.redirectUrl + '?eventName=' + encodeURIComponent(eventDropdown);
-                            }
-                        });
-                    } else {
-                        // Show error message from response
+                // Perform the AJAX request
+                $.ajax({
+                    url: '/RFID/SubmitButton',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(data),
+                    headers: {
+                        'Authorization': 'Bearer ' + accessToken
+                    },
+                    success: function (response) {
+                        if (response.success) {
+                            // Show success message and redirect
+                            Swal.fire({
+                                title: 'Success!',
+                                text: 'Configuration data inserted successfully!',
+                                icon: 'success',
+                                confirmButtonText: 'OK'
+                            }).then((result) => {
+                                if (result.isConfirmed) {
+                                    window.location.href = response.redirectUrl + '?eventName=' + encodeURIComponent(eventDropdown);
+                                }
+                            });
+                        } else {
+                            // Show error message from response
+                            Swal.fire({
+                                title: 'Error!',
+                                text: response.message || 'Error inserting data. Please try again.',
+                                icon: 'error',
+                                confirmButtonText: 'OK'
+                            });
+                        }
+                    },
+                    error: function (xhr, status, error) {
+                        // Enhanced error handling
+                        let errorMessage = 'Error inserting data. Please try again.';
+                        if (xhr.responseJSON && xhr.responseJSON.message) {
+                            errorMessage = xhr.responseJSON.message; // Use the error message from the server if available
+                        }
                         Swal.fire({
                             title: 'Error!',
-                            text: response.message || 'Error inserting data. Please try again.',
+                            text: errorMessage,
                             icon: 'error',
                             confirmButtonText: 'OK'
                         });
                     }
-                },
-                error: function (xhr, status, error) {
-                    // Enhanced error handling
-                    let errorMessage = 'Error inserting data. Please try again.';
-                    if (xhr.responseJSON && xhr.responseJSON.message) {
-                        errorMessage = xhr.responseJSON.message; // Use the error message from the server if available
-                    }
-                    Swal.fire({
-                        title: 'Error!',
-                        text: errorMessage,
-                        icon: 'error',
-                        confirmButtonText: 'OK'
-                    });
-                }
-            });
+                });
 
-            return false; // Prevent form submission
-        }
+                return false; // Prevent form submission
+            }
 
     </script>
 }
