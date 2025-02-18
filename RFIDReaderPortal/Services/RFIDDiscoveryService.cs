@@ -8,9 +8,10 @@ namespace RFIDReaderPortal.Services
 {
     public class RFIDDiscoveryService : IRFIDDiscoveryService
     {
-        public async Task<List<string>> DiscoverRFIDReadersAsync()
+        public async Task<(List<string> IpAddresses, string StatusMessage)> DiscoverRFIDReadersAsync()
         {
             var ipAddresses = new List<string>();
+            string statusMessage = "";
 
             foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
             {
@@ -47,6 +48,7 @@ namespace RFIDReaderPortal.Services
                             if (ip.Address.AddressFamily == AddressFamily.InterNetwork)
                             {
                                 ipAddresses.Add(ip.Address.ToString());
+                                statusMessage = "This is System IP Address. Please check if the Ethernet cable is connected.";
                             }
                         }
                     }
@@ -56,7 +58,7 @@ namespace RFIDReaderPortal.Services
             // Simulate asynchronous operation
             await Task.Delay(100);
 
-            return ipAddresses;
+            return (ipAddresses, statusMessage);
         }
     }
 }

@@ -8,13 +8,23 @@
 
 <h2>RFID Reader Configuration</h2>
 
+@if (!string.IsNullOrEmpty(Model.StatusMessage))
+{
+    <div class="alert alert-warning" role="alert">
+        @Model.StatusMessage
+    </div>
+}
 <div class="row">
     <div class="col-md-6">
         <div class="shadow-sm p-3 mb-5 bg-white rounded">
             <form id="eventForm" method="post" onsubmit="return SubmitButton(event);">
                 <div class="mb-3">
                     <label for="deviceName" class="form-label">Device Name:</label>
-                    <input type="text" id="deviceName" class="form-control" value="@ipAddress" readonly>
+                    <input type="text" id="deviceName" class="form-control" value="@(Model.ReaderIPs?.FirstOrDefault() ?? "")" readonly>
+                    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+                    {
+                        <small class="text-muted">@Model.StatusMessage</small>
+                    }
                 </div>
 
                 <div class="mb-3">

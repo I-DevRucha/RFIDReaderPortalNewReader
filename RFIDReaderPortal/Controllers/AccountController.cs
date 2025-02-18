@@ -34,21 +34,27 @@ public class AccountController : Controller
                 model.SessionId = GenerateSessionId();
                 model.Username = model.Email;
                 string deviceid = "";
-                var readerIPs = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
-                List<DeviceConfigurationDto> data1 = readerIPs
-                    .Select(ip => new DeviceConfigurationDto
-                    {
-                        DeviceId = ip
-                    })
-                    .ToList();
+               
+                var readerStatus = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
+                List<DeviceConfigurationDto> data1 = readerStatus.IpAddresses
+                 .Select(ip => new DeviceConfigurationDto
+                 {
+                     
+                     DeviceId = ip,                     // IP Address
+                     statusmessage = readerStatus.StatusMessage // Status Message for all IPs
+                 })
+                 .ToList();
 
-                if (string.IsNullOrEmpty(deviceid) && readerIPs.Any())
+                if (string.IsNullOrEmpty(deviceid) && readerStatus.IpAddresses.Any())
                 {
-                    deviceid = readerIPs.First();
+                    deviceid = readerStatus.IpAddresses.First();
                 }
                 model.IpAddress = deviceid;
+                
+    
 
-                var result = await LoginUser(model);
+
+    var result = await LoginUser(model);
 
                 if (result.IsSuccessStatusCode)
                 {

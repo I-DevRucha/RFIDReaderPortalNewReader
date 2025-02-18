@@ -26,6 +26,7 @@ namespace RFIDReaderPortal.Models
         public string? IsActive { get; set; }
         public string? sessionid { get; set; }
         public string? ipaddress { get; set; }
+        public string? statusmessage { get; set; }
 
 
     }

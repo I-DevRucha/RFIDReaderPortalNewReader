@@ -64,28 +64,25 @@ namespace RFIDReaderPortal.Controllers
                 string deviceid = Request.Cookies["DeviceId"];
                 string ipaddress = Request.Cookies["IpAddress"];
                 string sesionid = Request.Cookies["sessionid"];
-                dynamic events = await apiservice.GetAllRecruitEventsAsync(accessToken, userid, recruitid, sesionid,ipaddress);
+
+                dynamic events = await apiservice.GetAllRecruitEventsAsync(accessToken, userid, recruitid, sesionid, ipaddress);
                 dynamic responsemodel = events.outcome;
-                  IEnumerable<RecruitmentEventDto> eventData;
+                IEnumerable<RecruitmentEventDto> eventData;
+
                 if (events.data is JObject dataObject)
                 {
-                    // If it's a JObject, wrap it in a list
                     eventData = new List<RecruitmentEventDto> { dataObject.ToObject<RecruitmentEventDto>() };
                 }
                 else if (events.data is JArray eventDataArray)
                 {
-                    // If it's a JArray, convert it to a list
                     eventData = eventDataArray.ToObject<List<RecruitmentEventDto>>();
                 }
                 else
                 {
-                    // Handle unexpected data type
                     throw new InvalidOperationException("Unexpected data type received from API");
                 }
 
-
                 string newtoken = responsemodel?.tokens?.ToString();
-
                 if (!string.IsNullOrEmpty(newtoken))
                 {
                     ViewBag.Tokens = newtoken;
@@ -93,25 +90,31 @@ namespace RFIDReaderPortal.Controllers
                     accessToken = newtoken;
                 }
 
-                var readerIPs = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
+                // Updated to use the new method that returns status message
+                var (readerIPs, statusMessage) = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
+
                 DeviceConfigurationDto model = new DeviceConfigurationDto();
                 if (readerIPs.Any())
-
                 {
                     model.DeviceId = readerIPs.First();
-
+                    model.statusmessage = statusMessage; // Add status message to model
                 }
-                  deviceid = model.DeviceId;
+                else
+                {
+                    model.statusmessage = statusMessage;
+                    ViewBag.StatusMessage = statusMessage; // Set ViewBag for immediate access in view
+                }
+
+                deviceid = model.DeviceId;
                 model.RecruitId = recruitid;
                 model.UserId = userid;
                 Response.Cookies.Append("DeviceId", deviceid);
 
-                ViewBag.UserId =  Request.Cookies["UserId"];
+                ViewBag.UserId = Request.Cookies["UserId"];
                 ViewBag.RecruitId = Request.Cookies["recruitid"];
 
                 dynamic getAsyncResponse = await _apiService.GetAsync(accessToken, userid, deviceid, sesionid, ipaddress);
 
-                // Handle token refresh from GetAsync
                 string newTokenFromGetAsync = getAsyncResponse?.outcome?.tokens?.ToString();
                 if (!string.IsNullOrEmpty(newTokenFromGetAsync))
                 {
@@ -140,6 +143,7 @@ namespace RFIDReaderPortal.Controllers
                     {
                         Events = eventData,
                         ReaderIPs = readerIPs,
+                        StatusMessage=statusMessage
                     };
 
                     return View("Index", viewModel);
@@ -159,7 +163,8 @@ namespace RFIDReaderPortal.Controllers
                 return View("Error", new ErrorViewModel { RequestId = System.Diagnostics.Activity.Current?.Id ?? HttpContext.TraceIdentifier });
             }
         }
-         
+
+
         [HttpPost]
         [Consumes("application/json")] // Expecting JSON content
         public async Task<IActionResult> SubmitButton([FromBody] DeviceConfigurationDto formData)
@@ -278,7 +283,8 @@ namespace RFIDReaderPortal.Controllers
             return new RFIDViewModel
             {
                 Recruitments = getRecResponse,
-                ReaderIPs = readerIPs
+                ReaderIPs = readerIPs.IpAddresses,
+                StatusMessage = readerIPs.StatusMessage
             };
         }
 

@@ -11,9 +11,11 @@ namespace RFIDReaderPortal.Models
        // public dynamic Recruitments { get; set; }
         public IEnumerable<CategoryMasterDto> Categories { get; set; }
 
-        public List<RecruitmentDto> Recruitments { get; set; }
+        public List<RecruitmentDto> Recruitments { get; set; }  
 
         public List<string> ReaderIPs { get; set; }
+        public string? StatusMessage { get; set; }
+
 
         public string? UserId { get; set; }
 

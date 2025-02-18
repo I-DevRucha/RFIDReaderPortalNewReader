@@ -2,6 +2,6 @@
 {
     public interface IRFIDDiscoveryService 
     {
-        Task<List<string>> DiscoverRFIDReadersAsync();
+        public  Task<(List<string> IpAddresses, string StatusMessage)> DiscoverRFIDReadersAsync();
     }
 }
