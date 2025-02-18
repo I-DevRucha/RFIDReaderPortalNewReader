@@ -94,22 +94,30 @@ namespace RFIDReaderPortal.Controllers
                 var (readerIPs, statusMessage) = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
 
                 DeviceConfigurationDto model = new DeviceConfigurationDto();
+
                 if (readerIPs.Any())
                 {
+                    // If IPs are found, use the first one as DeviceId
                     model.DeviceId = readerIPs.First();
                     model.statusmessage = statusMessage; // Add status message to model
                 }
                 else
                 {
+                    // If no IPs are found, handle accordingly
+                    model.DeviceId = "No device found"; // Or set to null or any fallback value
                     model.statusmessage = statusMessage;
-                    ViewBag.StatusMessage = statusMessage; // Set ViewBag for immediate access in view
+                    ViewBag.StatusMessage = statusMessage; // Set status message to ViewBag for immediate access
                 }
 
-                deviceid = model.DeviceId;
+                // Assign other properties like RecruitId, UserId
                 model.RecruitId = recruitid;
                 model.UserId = userid;
+
+                // Save the deviceid in cookies
+                deviceid = model.DeviceId;
                 Response.Cookies.Append("DeviceId", deviceid);
 
+                // Set additional ViewBag values for UserId and RecruitId
                 ViewBag.UserId = Request.Cookies["UserId"];
                 ViewBag.RecruitId = Request.Cookies["recruitid"];
 

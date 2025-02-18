@@ -45,16 +45,25 @@ public class AccountController : Controller
                  })
                  .ToList();
 
+                // Check if no IP address is found, handle accordingly
                 if (string.IsNullOrEmpty(deviceid) && readerStatus.IpAddresses.Any())
                 {
+                    // If IPs are found, set the first one to deviceid
                     deviceid = readerStatus.IpAddresses.First();
                 }
+                else if (string.IsNullOrEmpty(deviceid) && !readerStatus.IpAddresses.Any())
+                {
+                    // If no IP addresses are found, set a default value or handle the error
+                    deviceid = "No IP address found"; 
+                                                     
+                }
+              // Assign the deviceid to model
                 model.IpAddress = deviceid;
-                
-    
 
 
-    var result = await LoginUser(model);
+
+
+                var result = await LoginUser(model);
 
                 if (result.IsSuccessStatusCode)
                 {
