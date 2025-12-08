@@ -53,6 +53,113 @@
 <div class="container">
     <h1 class="mt-4">RFID Data</h1>
     <div id="debugInfo" class="alert alert-info mb-3"></div>
+
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Sr. No.</th>
+                <th>Tag ID</th>
+                <th>Lap Count</th>
+                <th>Timestamp</th>
+            </tr>
+        </thead>
+
+        <tbody id="rfidDataBody">
+           @*  @if (Model.RfidDataArray != null && Model.RfidDataArray.Length > 0)
+            {
+                // Group by TagId for count + latest timestamp
+                var grouped = Model.RfidDataArray
+                .GroupBy(x => x.TagId)
+                .Select(g => new
+                {
+                    TagId = g.Key,
+                    Count = g.Count(),
+                    Timestamp = g.OrderByDescending(t => t.Timestamp).First().Timestamp
+                });
+
+                foreach (var item in grouped)
+                {
+                    <tr>
+                        <td>@item.TagId</td>
+                        <td>@item.Timestamp.ToString("HH:mm:ss:fff")</td>
+                        <td>@item.Count</td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr>
+                    <td colspan="3">No data available</td>
+                </tr>
+            } *@
+     @*        @if (Model.RfidDataArray != null && Model.RfidDataArray.Length > 0)
+            {
+                var grouped = Model.RfidDataArray
+                .GroupBy(x => x.TagId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(t => t.Timestamp).ToList());
+
+                foreach (var entry in grouped)
+                {
+                    var tagId = entry.Key;
+                    var times = entry.Value.Select(t => t.Timestamp.ToString("HH:mm:ss:fff")).ToList();
+                    var lapCount = times.Count;
+
+                    <tr>
+                        <td>@tagId</td>
+                        <td>@lapCount</td>
+                        <td>
+                            @foreach (var t in times)
+                            {
+                                <div>@t</div>
+                            }
+                        </td>
+                    </tr>
+                }
+            }
+            else
+            {
+                <tr><td colspan="3">No data available</td></tr>
+            } *@
+            @if (Model.RfidDataArray != null && Model.RfidDataArray.Length > 0)
+            {
+                var grouped = Model.RfidDataArray
+                .GroupBy(x => x.TagId)
+                .ToDictionary(g => g.Key, g => g.OrderBy(t => t.Timestamp).ToList());
+
+                int srNo = 1;
+
+                foreach (var entry in grouped)
+                {
+                    var tagId = entry.Key;
+                    var times = entry.Value.Select(t => t.Timestamp.ToString("HH:mm:ss:fff")).ToList();
+                    var lapCount = times.Count;
+
+                    <tr>
+                        <td>@srNo</td>              @* Serial Number *@
+                        <td>@tagId</td>
+                        <td>@lapCount</td>
+                        <td>
+                            @foreach (var t in times)
+                            {
+                                <div>@t</div>
+                            }
+                        </td>
+                    </tr>
+
+                    srNo++;
+                }
+            }
+            else
+            {
+                <tr><td colspan="4">No data available</td></tr>
+            }
+    </table>
+</div>
+
+
+@* <div class="container">
+    <h1 class="mt-4">RFID Data</h1>
+    <div id="debugInfo" class="alert alert-info mb-3"></div>
     <table class="table table-bordered">
         <thead>
             <tr>
@@ -79,7 +186,7 @@
             }
         </tbody>
     </table>
-</div>
+</div> *@
 
 <button id="stopButton" type="button" class="btn btn-danger" disabled>Stop</button>
 <button id="startButton" type="button" class="btn btn-success">Start</button>
@@ -148,20 +255,130 @@
                         }
                     });
                 }
+                        function updateTable(data) {
+            const $body = $('#rfidDataBody');
+            $body.empty();
 
-                function updateTable(data) {
-                    const $body = $('#rfidDataBody');
-                    $body.empty();
-                    if (data.length > 0) {
-                        data.forEach(function (item) {
-                            $body.append(
-                                `<tr><td>${item.tagId}</td><td>${item.timestamp}</td></tr>`
-                            );
-                        });
-                    } else {
-                        $body.append('<tr><td colspan="2">No data available</td></tr>');
-                    }
+            if (!data || data.length === 0) {
+                $body.append(`<tr><td colspan="4">No data available</td></tr>`);
+                return;
+            }
+
+            const eventName = $("#eventName").val();
+
+            const grouped = {};
+            data.forEach(item => {
+                grouped[item.tagId] = item; // always latest
+            });
+
+            let srNo = 1;
+            Object.values(grouped).forEach(item => {
+
+                let lapCount = item.lapTimes.length;
+                let timeHtml = "";
+
+                if (eventName === "100 Meter Running") {
+                    // Show only latest time for 100m
+                    timeHtml = `<div>${item.lapTimes[item.lapTimes.length - 1]}</div>`;
+                    lapCount = ""; // Hide lap count
+                } else {
+                    // Show each lap with "Lap x: timestamp"
+                    timeHtml = item.lapTimes.map((t, index) => `<div>Lap ${index + 1}: ${t}</div>`).join('');
                 }
+
+                $body.append(`
+                    <tr>
+                        <td>${srNo}</td>
+                        <td>${item.tagId}</td>
+                        <td>${lapCount}</td>
+                        <td>${timeHtml}</td>
+                    </tr>
+                `);
+
+                srNo++;
+            });
+
+            // Hide lap count column for 100m
+            if (eventName === "100 Meter Running") {
+                $("th:nth-child(3), td:nth-child(3)").hide();
+            } else {
+                $("th:nth-child(3), td:nth-child(3)").show();
+            }
+        }
+
+
+        // function updateTable(data) {
+        //     const $body = $('#rfidDataBody');
+        //     $body.empty();
+
+        //     if (!data || data.length === 0) {
+        //         $body.append(`<tr><td colspan="4">No data available</td></tr>`);
+        //         return;
+        //     }
+
+        //     const eventName = $("#eventName").val();
+
+        //     const grouped = {};
+        //     data.forEach(item => {
+        //         grouped[item.tagId] = item; // always latest
+        //     });
+
+        //     let srNo = 1;
+        //     Object.values(grouped).forEach(item => {
+
+        //         let lapCount = item.lapTimes.length;
+        //         let timeHtml = "";
+
+        //         // ******** FIX: For 100 meter → show ONLY latest time ********
+        //         if (eventName === "100 Meter Running") {
+        //             timeHtml = `<div>${item.lapTimes[item.lapTimes.length - 1]}</div>`;
+        //             lapCount = ""; // Hide lap count value
+        //         } else {
+        //             timeHtml = item.lapTimes.map(t => `<div>${t}</div>`).join('');
+        //         }
+
+        //         $body.append(`
+        //             <tr>
+        //                 <td>${srNo}</td>
+        //                 <td>${item.tagId}</td>
+        //                 <td>${lapCount}</td>
+        //                 <td>${timeHtml}</td>
+        //             </tr>
+        //         `);
+
+        //         srNo++;
+        //     });
+
+        //     // ******** Hide column header also ********
+        //     if (eventName === "100 Meter Running") {
+        //         $("th:nth-child(3), td:nth-child(3)").hide();
+        //     }
+        // }
+
+
+
+
+
+
+
+
+
+      
+
+
+                // function updateTable(data) {
+                //     const $body = $('#rfidDataBody');
+                //     $body.empty();
+                //     if (data.length > 0) {
+                //         data.forEach(function (item) {
+                //             $body.append(
+                //                 `<tr><td>${item.tagId}</td><td>${item.timestamp}</td></tr>`
+                //             );
+                //         });
+                //     } else {
+                //         $body.append('<tr><td colspan="2">No data available</td></tr>');
+                //     }
+                // }
 
                 function toggleListenerState(start) {
                     isRunning = start;

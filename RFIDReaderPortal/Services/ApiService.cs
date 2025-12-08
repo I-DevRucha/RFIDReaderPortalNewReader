@@ -107,35 +107,58 @@ namespace RFIDReaderPortal.Services
             }
             throw new Exception("Failed to fetch recruitment events.");
         }
-        public async Task<bool> PostRFIDRunningLogAsync(string accessToken, string userid, string recruitid, string DeviceId, string Location, string eventName, List<RfidData> rfidDataList, string sessionid, string ipaddress)
+        public async Task<bool> PostRFIDRunningLogAsync(
+            string accessToken, string userid, string recruitid, string DeviceId,
+            string Location, string eventName, List<RfidData> rfidDataList,
+            string sessionid, string ipaddress)
         {
             try
             {
                 var url = $"{_baseUrl}RFIDChestNoMapping/RFIDRunningLog?userid={userid}&recruitid={recruitid}&deviceid={DeviceId}&Location={Location}&eventName={eventName}&sessionid={sessionid}&ipaddress={ipaddress}";
                 var request = new HttpRequestMessage(HttpMethod.Post, url);
 
-                var requestData = rfidDataList.Select(rfidData => new
+                // Group by TagId
+                var groupedData = rfidDataList
+                    .GroupBy(x => x.TagId)
+                    .Select(g => new
+                    {
+                        TagId = g.Key,
+                        Laps = g.OrderBy(x => x.Timestamp).ToList()
+                    }).ToList();
+
+                // Decide lap count based on event
+                int totalLaps = eventName == "1600" ? 4 :
+                                eventName == "800" ? 2 :
+                                1;
+
+                // Prepare final request data
+                var requestData = groupedData.Select(x => new
                 {
-                    RFIDdtagata = rfidData.TagId,
-                    Timestamp = rfidData.Timestamp.ToString("HH:mm:ss:fff")
+                    RFIDdtagata = x.TagId,
+
+                    Lap1 = x.Laps.Count >= 1 ? x.Laps[0].Timestamp.ToString("HH:mm:ss:fff") : null,
+                    Lap2 = x.Laps.Count >= 2 ? x.Laps[1].Timestamp.ToString("HH:mm:ss:fff") : null,
+                    Lap3 = x.Laps.Count >= 3 ? x.Laps[2].Timestamp.ToString("HH:mm:ss:fff") : null,
+                    Lap4 = x.Laps.Count >= 4 ? x.Laps[3].Timestamp.ToString("HH:mm:ss:fff") : null,
+
+                    TotalLaps = totalLaps,
+
+                    // Send only required laps
+                    AllLaps = x.Laps
+                        .Take(totalLaps)
+                        .Select(l => l.Timestamp.ToString("HH:mm:ss:fff"))
+                        .ToList(),
+
+                    EventName = eventName
                 }).ToList();
 
+                // Send request
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 request.Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.SendAsync(request);
 
-                if (response.IsSuccessStatusCode)
-                {
-                    _logger.LogInformation($"Successfully inserted {rfidDataList.Count} RFID records");
-                    return true;
-                }
-                else
-                {
-                    var content = await response.Content.ReadAsStringAsync();
-                    _logger.LogError($"Failed to insert RFID data. Status: {response.StatusCode}, Content: {content}");
-                    return false;
-                }
+                return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
@@ -143,6 +166,45 @@ namespace RFIDReaderPortal.Services
                 return false;
             }
         }
+
+
+        //public async Task<bool> PostRFIDRunningLogAsync(string accessToken, string userid, string recruitid, string DeviceId, string Location, string eventName, List<RfidData> rfidDataList, string sessionid, string ipaddress)
+        //{
+        //    try
+        //    {
+        //        var url = $"{_baseUrl}RFIDChestNoMapping/RFIDRunningLog?userid={userid}&recruitid={recruitid}&deviceid={DeviceId}&Location={Location}&eventName={eventName}&sessionid={sessionid}&ipaddress={ipaddress}";
+        //        var request = new HttpRequestMessage(HttpMethod.Post, url);
+
+        //        var requestData = rfidDataList.Select(rfidData => new
+        //        {
+        //            RFIDdtagata = rfidData.TagId,
+        //            Timestamp = rfidData.Timestamp.ToString("HH:mm:ss:fff")
+        //          //  LapCount = rfidData.LapNo
+        //        }).ToList();
+
+        //        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        //        request.Content = new StringContent(JsonConvert.SerializeObject(requestData), Encoding.UTF8, "application/json");
+
+        //        var response = await _httpClient.SendAsync(request);
+
+        //        if (response.IsSuccessStatusCode)
+        //        {
+        //            _logger.LogInformation($"Successfully inserted {rfidDataList.Count} RFID records");
+        //            return true;
+        //        }
+        //        else
+        //        {
+        //            var content = await response.Content.ReadAsStringAsync();
+        //            _logger.LogError($"Failed to insert RFID data. Status: {response.StatusCode}, Content: {content}");
+        //            return false;
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        _logger.LogError(ex, "Error occurred while inserting RFID data");
+        //        return false;
+        //    }
+        //}
 
         public async Task ProcessRFIDEventAsync(EventModel model, string accessToken)
         {

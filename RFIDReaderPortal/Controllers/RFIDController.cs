@@ -140,9 +140,11 @@ namespace RFIDReaderPortal.Controllers
                 foreach (var item in ipDataResponse)
                 {
                     if (!string.IsNullOrEmpty(item.EventId))
-                        Response.Cookies.Append("EventName", item.EventId);
+                        Response.Cookies.Append("EventId", item.EventId);
                     if (!string.IsNullOrEmpty(item.Location))
                         Response.Cookies.Append("Location", item.Location);
+                    if (!string.IsNullOrEmpty(item.Location))
+                        Response.Cookies.Append("EventName", item.eventName);
                 }
 
                 if (ipDataResponse.Count == 0)
@@ -386,6 +388,44 @@ namespace RFIDReaderPortal.Controllers
             return Json(new { success = true, message = "Data cleared successfully." });
         }
 
+        //[HttpGet]
+        //public ActionResult GetData()
+        //{
+        //    string accessToken = Request.Cookies["accesstoken"];
+        //    string userid = Request.Cookies["UserId"];
+        //    string recruitid = Request.Cookies["recruitid"];
+        //    string deviceId = Request.Cookies["DeviceId"];
+        //    string location = Request.Cookies["Location"];
+        //    string eventName = Request.Cookies["EventName"];
+        //    string ipaddress = Request.Cookies["IpAddress"];
+        //    string sesionid = Request.Cookies["sessionid"];
+
+        //    _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName,ipaddress, sesionid);
+
+        //    //_tcpListenerService.Start();
+        //    if (!_tcpListenerService.IsRunning)
+        //    {
+        //        _tcpListenerService.Start();
+        //    }
+
+        //    var rfidDataArray = _tcpListenerService.GetReceivedData();
+
+        //    var hexStringArray = _tcpListenerService.GetHexData();
+
+        //    Console.WriteLine($"GetData called. Data count: {rfidDataArray.Length}");
+
+        //    return Json(new
+        //    {
+        //        rfidDataArray = rfidDataArray.Select(item => new
+        //        {
+        //            TagId = item.TagId,
+        //            Timestamp = item.Timestamp.ToString("HH:mm:ss:fff")
+        //        }),
+        //        count = rfidDataArray.Length,
+        //        isRunning = _tcpListenerService.IsRunning,
+        //        hexString = hexStringArray
+        //    });
+        //}
         [HttpGet]
         public ActionResult GetData()
         {
@@ -398,32 +438,51 @@ namespace RFIDReaderPortal.Controllers
             string ipaddress = Request.Cookies["IpAddress"];
             string sesionid = Request.Cookies["sessionid"];
 
-            _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName,ipaddress, sesionid);
+            _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName, ipaddress, sesionid);
 
-            //_tcpListenerService.Start();
+            // Ensure the listener is running
             if (!_tcpListenerService.IsRunning)
             {
                 _tcpListenerService.Start();
             }
 
+            // Fetch full RFID data (including LapTimes)
             var rfidDataArray = _tcpListenerService.GetReceivedData();
-
             var hexStringArray = _tcpListenerService.GetHexData();
 
             Console.WriteLine($"GetData called. Data count: {rfidDataArray.Length}");
 
             return Json(new
             {
-                rfidDataArray = rfidDataArray.Select(item => new
+                rfidDataArray = rfidDataArray.Select(item =>
                 {
-                    TagId = item.TagId,
-                    Timestamp = item.Timestamp.ToString("HH:mm:ss:fff")
-                }),
+                    var lastLapTime = item.LapTimes.LastOrDefault();
+
+                    return new
+                    {
+                        tagId = item.TagId,
+
+                        // Send ALL lap timestamps
+                        lapTimes = item.LapTimes
+                            .Select(t => t.ToString("HH:mm:ss:fff"))
+                            .ToList(),
+
+                        lapCount = item.LapTimes.Count,
+
+                        // Safely handle empty LapTimes
+                        lastLap = lastLapTime == default(DateTime)
+                            ? null
+                            : lastLapTime.ToString("HH:mm:ss:fff")
+                    };
+                }).ToList(),
+
                 count = rfidDataArray.Length,
                 isRunning = _tcpListenerService.IsRunning,
                 hexString = hexStringArray
             });
         }
+
+
 
         [HttpPost]
         public async Task<IActionResult> Reset()
