@@ -1,156 +1,229 @@
 ﻿@model RFIDReaderPortal.Models.RFIDViewModel
 
 @{
-    var Categs = Model.Categories;
-    var events = Model.Events;
-    var ipAddress = string.Join(", ", Model.ReaderIPs);
+    ViewData["Title"] = "RFID Configuration";
 }
 
-<h2>RFID Reader Configuration</h2>
+<style>
+    .config-container {
+        max-width: 800px;
+        margin: 50px auto;
+        padding: 30px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
 
-@if (!string.IsNullOrEmpty(Model.StatusMessage))
-{
-    <div class="alert alert-warning" role="alert">
-        @Model.StatusMessage
+    .config-header {
+        text-align: center;
+        margin-bottom: 30px;
+        color: #667eea;
+    }
+
+    .form-group {
+        margin-bottom: 20px;
+    }
+
+    .form-group label {
+        display: block;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #374151;
+    }
+
+    .form-group input,
+    .form-group select {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e5e7eb;
+        border-radius: 5px;
+        font-size: 16px;
+        transition: border-color 0.3s;
+    }
+
+    .form-group input:focus,
+    .form-group select:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
+    .status-message {
+        padding: 15px;
+        margin-bottom: 20px;
+        border-radius: 5px;
+        font-weight: 600;
+    }
+
+    .status-success {
+        background: #d1fae5;
+        color: #065f46;
+        border-left: 4px solid #10b981;
+    }
+
+    .status-error {
+        background: #fee2e2;
+        color: #991b1b;
+        border-left: 4px solid #ef4444;
+    }
+
+    .btn-submit {
+        width: 100%;
+        padding: 15px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border: none;
+        border-radius: 5px;
+        font-size: 18px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s;
+    }
+
+    .btn-submit:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+    }
+
+    .reader-info {
+        background: #f9fafb;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 20px;
+    }
+
+    .reader-info h4 {
+        margin-top: 0;
+        color: #667eea;
+    }
+
+    .quick-links {
+        text-align: center;
+        margin-top: 30px;
+    }
+
+    .quick-links a {
+        display: inline-block;
+        margin: 0 10px;
+        padding: 10px 20px;
+        color: #667eea;
+        text-decoration: none;
+        border: 2px solid #667eea;
+        border-radius: 5px;
+        transition: all 0.3s;
+    }
+
+    .quick-links a:hover {
+        background: #667eea;
+        color: white;
+    }
+</style>
+
+<div class="config-container">
+    <div class="config-header">
+        <h1>🏷️ RFID Reader Configuration</h1>
+        <p>Configure your RFID reader settings</p>
     </div>
-}
-<div class="row">
-    <div class="col-md-6">
-        <div class="shadow-sm p-3 mb-5 bg-white rounded">
-            <form id="eventForm" method="post" onsubmit="return SubmitButton(event);">
-                <div class="mb-3">
-                    <label for="deviceName" class="form-label">Device Name:</label>
-                    <input type="text" id="deviceName" class="form-control" value="@(Model.ReaderIPs?.FirstOrDefault() ?? "")" readonly>
-                   
-                </div>
 
-                <div class="mb-3">
-                    <label for="eventDropdown" class="form-label">Event:</label>
-                    <select class="form-select" id="eventDropdown" name="eventDropdown">
-                        <option value="">-- Select an Event --</option>
-                        @if (Model.Events != null)
-                        {
-                            foreach (var item in Model.Events)
-                            {
-                                <option value="@item.Id">@item.eventName</option>
-                            }
-                        }
-                    </select>
-                </div>
-
-                <div class="mb-3">
-                    <label for="locationDropdown" class="form-label">Location:</label>
-                    <select class="form-select" id="locationDropdown" name="locationDropdown">
-                        <option value="">-- Select Location --</option>
-                        <option value="Start">Start</option>
-                        <option value="Center">Center</option>
-                        <option value="End">End</option>
-                        <option value="both">Start and End</option>
-                    </select>
-                </div>
-
-                <input type="hidden" id="access_token" value="@ViewData["AccessToken"]" />
-                <button type="submit" class="btn btn-primary" onclick="SubmitButton(event)">Submit</button>
-                <button id="resetButton" type="button" class="btn btn-warning me-2" onclick="window.location.href='@Url.Action("Login", "Account")'">Back</button>
-            </form>
+    @if (!string.IsNullOrEmpty(Model?.StatusMessage))
+    {
+        <div class="status-message @(Model.StatusMessage.Contains("Success") ? "status-success" : "status-error")">
+            @Model.StatusMessage
         </div>
+    }
+
+    <div class="reader-info">
+        <h4>📡 Reader Information</h4>
+        <p><strong>Expected Reader IP:</strong> 192.168.0.131</p>
+        <p><strong>Port:</strong> 2022</p>
+        @if (Model?.ReaderIPs != null && Model.ReaderIPs.Any())
+        {
+            <p><strong>Detected Network IPs:</strong></p>
+            <ul>
+                @foreach (var ip in Model.ReaderIPs)
+                {
+                    <li>@ip</li>
+                }
+            </ul>
+        }
+    </div>
+
+    <form id="configForm">
+        <div class="form-group">
+            <label for="deviceId">Device ID</label>
+            <input type="text"
+                   id="deviceId"
+                   name="DeviceId"
+                   value="@(Model?.ReaderIPs?.FirstOrDefault() ?? "192.168.0.131")"
+                   required />
+        </div>
+
+        <div class="form-group">
+            <label for="eventId">Event</label>
+            <select id="eventId" name="EventId" required>
+                <option value="">Select an event</option>
+                @if (Model?.Events != null)
+                {
+                    @foreach (var evt in Model.Events)
+                    {
+                        <option value="@evt.eventName">@evt.eventName</option>
+                    }
+                }
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="location">Location</label>
+            <input type="text"
+                   id="location"
+                   name="Location"
+                   placeholder="e.g., Main Entrance, Hall A"
+                   required />
+        </div>
+
+        <input type="hidden" name="UserId" value="@ViewBag.UserId" />
+        <input type="hidden" name="RecruitId" value="@ViewBag.RecruitId" />
+
+        <button type="submit" class="btn-submit">
+            ✅ Save Configuration & Go to Reader
+        </button>
+    </form>
+
+    <div class="quick-links">
+        <a href="/RFID/Reader">📊 Go to Reader</a>
+        <a href="/RFID/DiagnosticStatus" target="_blank">🔍 Diagnostics</a>
     </div>
 </div>
 
+<script>
+    document.getElementById('configForm').addEventListener('submit', function(e) {
+        e.preventDefault();
 
-@section Scripts {
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script type="text/javascript">
-
-        // Configure toastr
-        toastr.options = {
-            "closeButton": true,
-            "progressBar": true,
-            "positionClass": "toast-top-right",
-            "timeOut": "3000"
+        const formData = {
+            DeviceId: document.getElementById('deviceId').value,
+            EventId: document.getElementById('eventId').value,
+            Location: document.getElementById('location').value,
+            UserId: document.querySelector('input[name="UserId"]').value,
+            RecruitId: document.querySelector('input[name="RecruitId"]').value
         };
 
-        // Show login success message if it exists
-        @if (TempData["SuccessMessage"] != null)
-        {
-            <text>
-                toastr.success('@TempData["SuccessMessage"]');
-            </text>
-        }
-
-            function SubmitButton(event) {
-                // Prevent the default form submission
-                event.preventDefault();
-
-                // Get access token and input values
-                var accessToken = document.getElementById('access_token').value;
-                var deviceName = $('#deviceName').val();
-                var eventDropdown = $('#eventDropdown').val();
-                var locationDropdown = $('#locationDropdown').val();
-
-                // Use Razor to get server-side values for UserId and RecruitId
-                const userid = '@ViewBag.UserId';
-                const recruitid = '@ViewBag.RecruitId';
-
-                // Construct the data object for the AJAX request
-                var data = {
-                    DeviceId: deviceName,
-                    EventId: eventDropdown,
-                    Location: locationDropdown,
-                    UserId: userid,
-                    RecruitId: recruitid
-                };
-
-                // Perform the AJAX request
-                $.ajax({
-                    url: '/RFID/SubmitButton',
-                    type: 'POST',
-                    contentType: 'application/json',
-                    data: JSON.stringify(data),
-                    headers: {
-                        'Authorization': 'Bearer ' + accessToken
-                    },
-                    success: function (response) {
-                        if (response.success) {
-                            // Show success message and redirect
-                            Swal.fire({
-                                title: 'Success!',
-                                text: 'Configuration data inserted successfully!',
-                                icon: 'success',
-                                confirmButtonText: 'OK'
-                            }).then((result) => {
-                                if (result.isConfirmed) {
-                                    window.location.href = response.redirectUrl + '?eventName=' + encodeURIComponent(eventDropdown);
-                                }
-                            });
-                        } else {
-                            // Show error message from response
-                            Swal.fire({
-                                title: 'Error!',
-                                text: response.message || 'Error inserting data. Please try again.',
-                                icon: 'error',
-                                confirmButtonText: 'OK'
-                            });
-                        }
-                    },
-                    error: function (xhr, status, error) {
-                        // Enhanced error handling
-                        let errorMessage = 'Error inserting data. Please try again.';
-                        if (xhr.responseJSON && xhr.responseJSON.message) {
-                            errorMessage = xhr.responseJSON.message; // Use the error message from the server if available
-                        }
-                        Swal.fire({ 
-                            title: 'Error!',
-                            text: errorMessage,
-                            icon: 'error',
-                            confirmButtonText: 'OK'
-                        });
-                    }
-                });
-
-                return false; // Prevent form submission
+        fetch('/RFID/SubmitButton', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                window.location.href = data.redirectUrl;
+            } else {
+                alert('Error: ' + (data.message || 'Configuration failed'));
             }
-
-    </script>
-}
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error submitting configuration');
+        });
+    });
+</script>

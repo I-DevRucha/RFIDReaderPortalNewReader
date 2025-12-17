@@ -1,20 +1,15 @@
-﻿using Microsoft.AspNetCore.Mvc.ApplicationModels;
+﻿using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using RFIDReaderPortal.Models;
 using RFIDReaderPortal.Services;
-using System.Text;
 using System;
-using System.Net.Http;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
-using System.Reflection;
-using Newtonsoft.Json.Linq;
-using Microsoft.Extensions.Logging;
-using System.Collections;
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.Mvc.Diagnostics;
-using System.Net;
 
 namespace RFIDReaderPortal.Controllers
 {
@@ -23,41 +18,32 @@ namespace RFIDReaderPortal.Controllers
         private readonly IApiService _apiService;
         private readonly IRFIDDiscoveryService _rfidDiscoveryService;
         private readonly IConfiguration _configuration;
-        private readonly ITcpListenerService _tcpListenerService;
-        private readonly string _baseUrl;
-        private readonly ILogger<ApiService> _logger;
-        private static Dictionary<string, RfidData> _latestRfidData = new Dictionary<string, RfidData>();
-        private static DateTime _lastClearTime = DateTime.MinValue;
+        private readonly ILogger<RFIDController> _logger;
+
+        // Single RFID service using UHF SDK only
+        private static UhfRfidService _uhfService;
+        private static readonly object _serviceLock = new object();
+
+        // Configuration
+        private const string READER_IP = "192.168.0.131";
+        private const int READER_PORT = 2022;
 
         public RFIDController(
              IApiService apiService,
              IRFIDDiscoveryService rfidDiscoveryService,
              IConfiguration configuration,
-             ITcpListenerService tcpListenerService,
-             ILogger<ApiService> logger)
+             ILogger<RFIDController> logger)
         {
             _apiService = apiService ?? throw new ArgumentNullException(nameof(apiService));
             _rfidDiscoveryService = rfidDiscoveryService ?? throw new ArgumentNullException(nameof(rfidDiscoveryService));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-            _tcpListenerService = tcpListenerService ?? throw new ArgumentNullException(nameof(tcpListenerService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-
-            _baseUrl = configuration["ApiBaseUrl"];
-            //// Use IConfiguration to get the ApiBaseUrl
-            //_baseUrl = _configuration["ApiBaseUrl:Azure"] ?? _configuration["ApiBaseUrl:Local"];
-            //if (string.IsNullOrEmpty(_baseUrl))
-            //{
-            //    throw new InvalidOperationException("ApiBaseUrl is not configured in the application settings.");
-            //}
         }
-
 
         public async Task<IActionResult> Configuration()
         {
             try
             {
-                var httpClient = new HttpClient();
-                ApiService apiservice = new ApiService(httpClient, _configuration, _logger);
                 string accessToken = Request.Cookies["accesstoken"];
                 string userid = Request.Cookies["UserId"];
                 string recruitid = Request.Cookies["recruitid"];
@@ -65,10 +51,10 @@ namespace RFIDReaderPortal.Controllers
                 string ipaddress = Request.Cookies["IpAddress"];
                 string sesionid = Request.Cookies["sessionid"];
 
-                dynamic events = await apiservice.GetAllRecruitEventsAsync(accessToken, userid, recruitid, sesionid, ipaddress);
+                dynamic events = await _apiService.GetAllRecruitEventsAsync(accessToken, userid, recruitid, sesionid, ipaddress);
                 dynamic responsemodel = events.outcome;
-                IEnumerable<RecruitmentEventDto> eventData;
 
+                IEnumerable<RecruitmentEventDto> eventData;
                 if (events.data is JObject dataObject)
                 {
                     eventData = new List<RecruitmentEventDto> { dataObject.ToObject<RecruitmentEventDto>() };
@@ -85,50 +71,28 @@ namespace RFIDReaderPortal.Controllers
                 string newtoken = responsemodel?.tokens?.ToString();
                 if (!string.IsNullOrEmpty(newtoken))
                 {
-                    ViewBag.Tokens = newtoken;
                     Response.Cookies.Append("accesstoken", newtoken);
                     accessToken = newtoken;
                 }
 
-                // Updated to use the new method that returns status message
                 var (readerIPs, statusMessage) = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
 
-                DeviceConfigurationDto model = new DeviceConfigurationDto();
-
-                if (readerIPs.Any())
+                DeviceConfigurationDto model = new DeviceConfigurationDto
                 {
-                    // If IPs are found, use the first one as DeviceId
-                    model.DeviceId = readerIPs.First();
-                    model.statusmessage = statusMessage; // Add status message to model
-                }
-                else
-                {
-                    // If no IPs are found, handle accordingly
-                    model.DeviceId = "No device found"; // Or set to null or any fallback value
-                    model.statusmessage = statusMessage;
-                    ViewBag.StatusMessage = statusMessage; // Set status message to ViewBag for immediate access
-                }
+                    DeviceId = readerIPs.Any() ? readerIPs.First() : "No device found",
+                    statusmessage = statusMessage,
+                    RecruitId = recruitid,
+                    UserId = userid
+                };
 
-                // Assign other properties like RecruitId, UserId
-                model.RecruitId = recruitid;
-                model.UserId = userid;
+                Response.Cookies.Append("DeviceId", model.DeviceId);
 
-                // Save the deviceid in cookies
-                deviceid = model.DeviceId;
-                Response.Cookies.Append("DeviceId", deviceid);
-
-                // Set additional ViewBag values for UserId and RecruitId
-                ViewBag.UserId = Request.Cookies["UserId"];
-                ViewBag.RecruitId = Request.Cookies["recruitid"];
-
-                dynamic getAsyncResponse = await _apiService.GetAsync(accessToken, userid, deviceid, sesionid, ipaddress);
+                dynamic getAsyncResponse = await _apiService.GetAsync(accessToken, userid, model.DeviceId, sesionid, ipaddress);
 
                 string newTokenFromGetAsync = getAsyncResponse?.outcome?.tokens?.ToString();
                 if (!string.IsNullOrEmpty(newTokenFromGetAsync))
                 {
-                    ViewBag.Tokens = newTokenFromGetAsync;
                     Response.Cookies.Append("accesstoken", newTokenFromGetAsync);
-                    accessToken = newTokenFromGetAsync;
                 }
 
                 List<DeviceConfigurationDto> ipDataResponse = new List<DeviceConfigurationDto>();
@@ -143,7 +107,7 @@ namespace RFIDReaderPortal.Controllers
                         Response.Cookies.Append("EventId", item.EventId);
                     if (!string.IsNullOrEmpty(item.Location))
                         Response.Cookies.Append("Location", item.Location);
-                    if (!string.IsNullOrEmpty(item.Location))
+                    if (!string.IsNullOrEmpty(item.eventName))
                         Response.Cookies.Append("EventName", item.eventName);
                 }
 
@@ -153,9 +117,8 @@ namespace RFIDReaderPortal.Controllers
                     {
                         Events = eventData,
                         ReaderIPs = readerIPs,
-                        StatusMessage=statusMessage
+                        StatusMessage = statusMessage
                     };
-
                     return View("Index", viewModel);
                 }
                 else
@@ -174,9 +137,8 @@ namespace RFIDReaderPortal.Controllers
             }
         }
 
-
         [HttpPost]
-        [Consumes("application/json")] // Expecting JSON content
+        [Consumes("application/json")]
         public async Task<IActionResult> SubmitButton([FromBody] DeviceConfigurationDto formData)
         {
             try
@@ -186,36 +148,29 @@ namespace RFIDReaderPortal.Controllers
                 string sesionid = Request.Cookies["sessionid"];
 
                 if (string.IsNullOrEmpty(accessToken))
-                {
                     return BadRequest("Access token is missing.");
-                }
-
-                ViewData["AccessToken"] = accessToken;
 
                 if (formData == null ||
                     string.IsNullOrEmpty(formData.DeviceId) ||
                     string.IsNullOrEmpty(formData.EventId) ||
                     string.IsNullOrEmpty(formData.Location) ||
                     string.IsNullOrEmpty(formData.UserId) ||
-                    string.IsNullOrEmpty(formData.RecruitId)  )
+                    string.IsNullOrEmpty(formData.RecruitId))
                 {
                     return BadRequest("All input fields are required.");
                 }
 
-                dynamic InsertRFID = await _apiService.InsertDeviceConfigurationAsync(accessToken, formData, sesionid,ipaddress );
+                dynamic InsertRFID = await _apiService.InsertDeviceConfigurationAsync(accessToken, formData, sesionid, ipaddress);
 
-                string newTokenFromGetAsync = InsertRFID?.outcome?.tokens?.ToString();
-                if (!string.IsNullOrEmpty(newTokenFromGetAsync))
+                string newToken = InsertRFID?.outcome?.tokens?.ToString();
+                if (!string.IsNullOrEmpty(newToken))
                 {
-                    ViewBag.Tokens = newTokenFromGetAsync;
-                    Response.Cookies.Append("accesstoken", newTokenFromGetAsync);
-                    accessToken = newTokenFromGetAsync;
-                } 
+                    Response.Cookies.Append("accesstoken", newToken);
+                }
 
-                string Eventid = formData.EventId;
-                string Location = formData.Location;
-                Response.Cookies.Append("EventName", Eventid);
-                Response.Cookies.Append("Location", Location);
+                Response.Cookies.Append("EventName", formData.EventId);
+                Response.Cookies.Append("Location", formData.Location);
+
                 return Json(new { success = true, redirectUrl = Url.Action("Reader", "RFID") });
             }
             catch (Exception ex)
@@ -225,120 +180,27 @@ namespace RFIDReaderPortal.Controllers
             }
         }
 
-        [HttpPost]
-        public async Task<IActionResult> RFID(EventModel model)
-        {
-            if (!ModelState.IsValid)
-            {
-                return View("Index", await PrepareViewModel());
-            }
-
-            try
-            {
-                string accessToken = Request.Cookies["accesstoken"];
-
-                //await _apiService.ProcessRFIDEventAsync(model, accessToken);
-
-                return View("Index", await PrepareViewModel());
-            }
-            catch (Exception ex)
-            {
-                // Log the exception
-                ModelState.AddModelError(string.Empty, "An error occurred while processing your request.");
-                return View("Index", await PrepareViewModel());
-            }
-        }
-
-        private async Task<RFIDViewModel> PrepareViewModel()
-        {
-            string accessToken = Request.Cookies["accesstoken"];
-
-            string userid = Request.Cookies["UserId"];
-            string recruitid = Request.Cookies["recruitid"];
-            string ipaddress = Request.Cookies["IpAddress"];
-            string sesionid = Request.Cookies["sessionid"];
-            //string recConfId = Request.Cookies["recruitid"];
-            //string categoryid = Request.Cookies["categoryId"];
-            //string deviceid = Request.Cookies["DeviceId"]; 
-            //dynamic recruitmentsData = await _apiService.GetAllRecruitmentsAsync(accessToken);
-
-            dynamic getRecResponse = await _apiService.GetAllRecruitmentsAsync(accessToken, userid, recruitid, sesionid, ipaddress);
-            dynamic responsemodel = getRecResponse.outcome;
-            //dynamic responsemdata = events.data;
-            JArray responsemdata = (JArray)getRecResponse.data;
-            IEnumerable<RecruitmentEventDto> data = responsemdata.ToObject<List<RecruitmentEventDto>>();
-
-            string newtoken = responsemodel.tokens;
-
-            if (!string.IsNullOrEmpty(newtoken))
-            {
-                ViewBag.Tokens = newtoken;
-                Response.Cookies.Append("accesstoken", newtoken);
-            }
-
-            dynamic events = await _apiService.GetAllRecruitEventsAsync(accessToken, userid, recruitid, sesionid, ipaddress);
-            dynamic responsemodel1 = events.outcome;
-            JArray responsemdata1 = (JArray)events.data;
-            IEnumerable<RecruitmentEventDto> eventdata = responsemdata1.ToObject<List<RecruitmentEventDto>>();
-
-            string newtoken1 = responsemodel1.tokens;
-
-            var readerIPs = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
-
-            if (!string.IsNullOrEmpty(newtoken1))
-            {
-                ViewBag.Tokens = newtoken1;
-                Response.Cookies.Append("accesstoken", newtoken1);
-            }
-            return new RFIDViewModel
-            {
-                Recruitments = getRecResponse,
-                ReaderIPs = readerIPs.IpAddresses,
-                StatusMessage = readerIPs.StatusMessage
-            };
-        }
-
-        [HttpPost]
-        public async Task<IActionResult> Stop()
-        {
-            await _tcpListenerService.InsertStoredRfidDataAsync(); // Call method to insert data
-
-            return Json(new { success = true, message = "RFID data inserted successfully." });
-        }
-
         public async Task<IActionResult> Reader()
         {
             try
             {
+                // Initialize RFID service if needed
+                EnsureRfidServiceInitialized();
+
                 string accessToken = Request.Cookies["accesstoken"];
                 string userid = Request.Cookies["UserId"];
-                string recruitid = Request.Cookies["recruitid"];
                 string deviceId = Request.Cookies["DeviceId"];
-                string location = Request.Cookies["Location"];
-                string eventName = Request.Cookies["EventName"];
-                string ipaddress = Request.Cookies["IpAddress"];
                 string sesionid = Request.Cookies["sessionid"];
-
-                if (!_tcpListenerService.IsRunning)
-                {
-                    _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName, sesionid, ipaddress);
-                    _tcpListenerService.Start();
-                }
-
-                ViewBag.IsRunning = _tcpListenerService.IsRunning;
-
-                var rfidDataArray = _tcpListenerService.GetReceivedData();
+                string ipaddress = Request.Cookies["IpAddress"];
 
                 dynamic getAsyncResponse = await _apiService.GetAsync(accessToken, userid, deviceId, sesionid, ipaddress);
 
-                // Handle token refresh if provided
                 if (getAsyncResponse?.outcome?.tokens != null)
                 {
                     string newToken = getAsyncResponse.outcome.tokens.ToString();
                     Response.Cookies.Append("accesstoken", newToken);
                 }
 
-                // Convert the dynamic data to List<DeviceConfigurationDto>
                 List<DeviceConfigurationDto> ipDataResponse = new List<DeviceConfigurationDto>();
                 if (getAsyncResponse?.data != null)
                 {
@@ -347,29 +209,14 @@ namespace RFIDReaderPortal.Controllers
                     );
                 }
 
-                // Create a list of RecruitmentEventDto for the eventname property
-                IEnumerable<RecruitmentEventDto> eventsList = new List<RecruitmentEventDto>();
-                if (!string.IsNullOrEmpty(eventName))
-                {
-                    eventsList = new List<RecruitmentEventDto>
-            {
-                new RecruitmentEventDto { eventName = eventName }
-            };
-                }
-                else if (ipDataResponse.Any() && !string.IsNullOrEmpty(ipDataResponse[0].EventId))
-                {
-                    eventsList = new List<RecruitmentEventDto>
-            {
-                new RecruitmentEventDto { eventName = ipDataResponse[0].EventId }
-            };
-                }
+                // Get RFID data
+                var rfidDataArray = _uhfService?.GetAllTags() ?? Array.Empty<RfidData>();
 
                 var viewModel = new RFIDViewModel
                 {
                     RfidDataArray = rfidDataArray,
-                    IsRunning = _tcpListenerService.IsRunning,
-                    IPDataResponse = ipDataResponse,
-                    eventname = eventsList // Now correctly typed as IEnumerable<RecruitmentEventDto>
+                    IsRunning = _uhfService?.IsConnected ?? false,
+                    IPDataResponse = ipDataResponse
                 };
 
                 return View(viewModel);
@@ -381,108 +228,94 @@ namespace RFIDReaderPortal.Controllers
             }
         }
 
+        /// <summary>
+        /// Get RFID data - called by JavaScript polling
+        /// Reader scans automatically via callback once connected!
+        /// </summary>
+        [HttpGet]
+        public IActionResult GetData()
+        {
+            try
+            {
+                // Ensure service is initialized and connected
+                EnsureRfidServiceInitialized();
+
+                if (_uhfService == null)
+                {
+                    return Json(new
+                    {
+                        error = "RFID service not initialized",
+                        count = 0,
+                        isRunning = false,
+                        isScanning = false,
+                        rfidDataArray = new object[0]
+                    });
+                }
+
+                if (!_uhfService.IsConnected)
+                {
+                    // Try to reconnect
+                    bool reconnected = _uhfService.Connect(READER_IP, READER_PORT);
+
+                    if (!reconnected)
+                    {
+                        return Json(new
+                        {
+                            error = $"RFID reader not connected. Check reader at {READER_IP}:{READER_PORT}",
+                            count = 0,
+                            isRunning = false,
+                            isScanning = false,
+                            rfidDataArray = new object[0],
+                            diagnostic = _uhfService.GetDiagnosticInfo()
+                        });
+                    }
+                }
+
+                var rfidDataArray = _uhfService.GetAllTags();
+
+                Console.WriteLine($"📊 GetData: Returning {rfidDataArray.Length} tags, Connected: {_uhfService.IsConnected}");
+
+                return Json(new
+                {
+                    count = rfidDataArray.Length,
+                    isRunning = _uhfService.IsConnected,
+                    isScanning = _uhfService.IsScanning, // Always true when connected (auto-scan via callback)
+                    rfidDataArray = rfidDataArray.Select(x => new
+                    {
+                        tagId = x.TagId,
+                        lapCount = x.LapTimes.Count,
+                        lastScan = x.Timestamp.ToString("HH:mm:ss.fff"),
+                        lapTimes = x.LapTimes.Select(t => t.ToString("HH:mm:ss.fff")).ToList()
+                    })
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in GetData");
+                return Json(new
+                {
+                    error = ex.Message,
+                    count = 0,
+                    isRunning = false,
+                    isScanning = false
+                });
+            }
+        }
+
         [HttpPost]
         public IActionResult ClearData()
         {
-            _tcpListenerService.ClearData();
-            return Json(new { success = true, message = "Data cleared successfully." });
-        }
-
-        //[HttpGet]
-        //public ActionResult GetData()
-        //{
-        //    string accessToken = Request.Cookies["accesstoken"];
-        //    string userid = Request.Cookies["UserId"];
-        //    string recruitid = Request.Cookies["recruitid"];
-        //    string deviceId = Request.Cookies["DeviceId"];
-        //    string location = Request.Cookies["Location"];
-        //    string eventName = Request.Cookies["EventName"];
-        //    string ipaddress = Request.Cookies["IpAddress"];
-        //    string sesionid = Request.Cookies["sessionid"];
-
-        //    _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName,ipaddress, sesionid);
-
-        //    //_tcpListenerService.Start();
-        //    if (!_tcpListenerService.IsRunning)
-        //    {
-        //        _tcpListenerService.Start();
-        //    }
-
-        //    var rfidDataArray = _tcpListenerService.GetReceivedData();
-
-        //    var hexStringArray = _tcpListenerService.GetHexData();
-
-        //    Console.WriteLine($"GetData called. Data count: {rfidDataArray.Length}");
-
-        //    return Json(new
-        //    {
-        //        rfidDataArray = rfidDataArray.Select(item => new
-        //        {
-        //            TagId = item.TagId,
-        //            Timestamp = item.Timestamp.ToString("HH:mm:ss:fff")
-        //        }),
-        //        count = rfidDataArray.Length,
-        //        isRunning = _tcpListenerService.IsRunning,
-        //        hexString = hexStringArray
-        //    });
-        //}
-        [HttpGet]
-        public ActionResult GetData()
-        {
-            string accessToken = Request.Cookies["accesstoken"];
-            string userid = Request.Cookies["UserId"];
-            string recruitid = Request.Cookies["recruitid"];
-            string deviceId = Request.Cookies["DeviceId"];
-            string location = Request.Cookies["Location"];
-            string eventName = Request.Cookies["EventName"];
-            string ipaddress = Request.Cookies["IpAddress"];
-            string sesionid = Request.Cookies["sessionid"];
-
-            _tcpListenerService.SetParameters(accessToken, userid, recruitid, deviceId, location, eventName, ipaddress, sesionid);
-
-            // Ensure the listener is running
-            if (!_tcpListenerService.IsRunning)
+            try
             {
-                _tcpListenerService.Start();
+                _uhfService?.ClearData();
+                return Json(new { success = true, message = "Data cleared successfully." });
             }
-
-            // Fetch full RFID data (including LapTimes)
-            var rfidDataArray = _tcpListenerService.GetReceivedData();
-            var hexStringArray = _tcpListenerService.GetHexData();
-
-            Console.WriteLine($"GetData called. Data count: {rfidDataArray.Length}");
-
-            return Json(new
+            catch (Exception ex)
             {
-                rfidDataArray = rfidDataArray.Select(item =>
-                {
-                    var lastLapTime = item.LapTimes.LastOrDefault();
-
-                    return new
-                    {
-                        tagId = item.TagId,
-
-                        // Send ALL lap timestamps
-                        lapTimes = item.LapTimes
-                            .Select(t => t.ToString("HH:mm:ss:fff"))
-                            .ToList(),
-
-                        lapCount = item.LapTimes.Count,
-
-                        // Safely handle empty LapTimes
-                        lastLap = lastLapTime == default(DateTime)
-                            ? null
-                            : lastLapTime.ToString("HH:mm:ss:fff")
-                    };
-                }).ToList(),
-
-                count = rfidDataArray.Length,
-                isRunning = _tcpListenerService.IsRunning,
-                hexString = hexStringArray
-            });
+                _logger.LogError(ex, "Error clearing data");
+                return Json(new { success = false, message = ex.Message });
+            }
         }
-
-
 
         [HttpPost]
         public async Task<IActionResult> Reset()
@@ -498,35 +331,215 @@ namespace RFIDReaderPortal.Controllers
                 string ipaddress = Request.Cookies["IpAddress"];
                 string sessionid = Request.Cookies["sessionid"];
 
-                // Call the service method to get a strongly-typed response
-                var InsertRFID = await _apiService.DeleteRFIDRecordsAsync(accessToken, userid, recruitid, deviceId, location, eventName, sessionid, ipaddress);
+                var deleteResult = await _apiService.DeleteRFIDRecordsAsync(
+                    accessToken, userid, recruitid, deviceId, location, eventName, sessionid, ipaddress);
 
-                // Extract the token and update the cookies
-                if (InsertRFID?.outcome != null && !string.IsNullOrEmpty(InsertRFID.outcome.tokens))
+                if (deleteResult?.outcome != null && !string.IsNullOrEmpty(deleteResult.outcome.tokens))
                 {
-                    ViewBag.Tokens = InsertRFID.outcome.tokens;
-                    Response.Cookies.Append("accesstoken", InsertRFID.outcome.tokens);
-                    accessToken = InsertRFID.outcome.tokens;
+                    Response.Cookies.Append("accesstoken", deleteResult.outcome.tokens);
                 }
 
-                // Check if the operation was successful
-                //if (InsertRFID?.outcome?.success == true)
-                //{
-                    _tcpListenerService.Stop();
-                    _latestRfidData.Clear();
-                    _lastClearTime = DateTime.MinValue;
+                // Clear local data
+                _uhfService?.ClearData();
 
-                    return Json(new { success = true, message = "RFID records deleted successfully and listener reset." });
-                //}
-                //else
-                //{
-                //    return Json(new { success = false, message = "Failed to delete RFID records." });
-                //}
+                return Json(new { success = true, message = "RFID records deleted and system reset." });
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred while deleting RFID records");
-                return StatusCode(500, new { success = false, message = "An error occurred while deleting RFID records." });
+                _logger.LogError(ex, "Error in Reset");
+                return StatusCode(500, new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Test endpoint to manually add a tag
+        /// </summary>
+        [HttpGet]
+        public IActionResult Test()
+        {
+            EnsureRfidServiceInitialized();
+
+            _uhfService?.TestAddTag("E28011700000020123456789");
+
+            var tags = _uhfService?.GetAllTags() ?? Array.Empty<RfidData>();
+
+            return Json(new
+            {
+                message = "Test tag added",
+                count = tags.Length,
+                tags = tags.Select(x => new { x.TagId, x.Timestamp })
+            });
+        }
+
+        /// <summary>
+        /// Trigger a manual scan (for testing)
+        /// </summary>
+        [HttpPost]
+        public IActionResult TriggerScan()
+        {
+            try
+            {
+                EnsureRfidServiceInitialized();
+
+                if (_uhfService == null || !_uhfService.IsConnected)
+                {
+                    return Json(new { success = false, message = "Reader not connected" });
+                }
+
+                string result = _uhfService.TriggerSingleScan();
+
+                return Json(new
+                {
+                    success = true,
+                    message = result,
+                    tagCount = _uhfService.TagCount
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error triggering scan");
+                return Json(new { success = false, message = ex.Message });
+            }
+        }
+
+        /// <summary>
+        /// Diagnostic endpoint
+        /// </summary>
+        [HttpGet]
+        public IActionResult DiagnosticStatus()
+        {
+            var output = new StringBuilder();
+            output.AppendLine("=== RFID SYSTEM DIAGNOSTIC (UHF SDK - AUTO-SCAN MODE) ===\n");
+
+            if (_uhfService == null)
+            {
+                output.AppendLine("❌ RFID Service: NOT INITIALIZED");
+                output.AppendLine("\n→ Navigate to /RFID/Reader to initialize");
+            }
+            else
+            {
+                output.AppendLine($"✅ RFID Service: INITIALIZED");
+                output.AppendLine($"🔌 Connected: {_uhfService.IsConnected}");
+                output.AppendLine($"📡 Scanning: {(_uhfService.IsConnected ? "AUTO (via callback)" : "NO")}");
+                output.AppendLine($"📊 Tags Scanned: {_uhfService.TagCount}");
+                output.AppendLine($"📋 Diagnostic: {_uhfService.GetDiagnosticInfo()}\n");
+
+                var tags = _uhfService.GetAllTags();
+                if (tags.Length == 0)
+                {
+                    output.AppendLine("⚠️ No tags scanned yet");
+                }
+                else
+                {
+                    output.AppendLine("📁 Scanned Tags:");
+                    foreach (var tag in tags)
+                    {
+                        output.AppendLine($"  🏷️ {tag.TagId}");
+                        output.AppendLine($"     Last: {tag.Timestamp:HH:mm:ss.fff}");
+                        output.AppendLine($"     Laps: {tag.LapTimes.Count}");
+                    }
+                }
+            }
+
+            output.AppendLine("\n=== CONFIGURATION ===");
+            output.AppendLine($"Reader IP: {READER_IP}");
+            output.AppendLine($"Reader Port: {READER_PORT}");
+            output.AppendLine($"Scan Mode: Automatic (Callback-based)");
+            output.AppendLine($"Device ID: {Request.Cookies["DeviceId"]}");
+            output.AppendLine($"Location: {Request.Cookies["Location"]}");
+            output.AppendLine($"Event: {Request.Cookies["EventName"]}");
+
+            // List available SDK methods
+            if (_uhfService != null)
+            {
+                output.AppendLine("\n=== AVAILABLE SDK METHODS ===");
+                var readerType = typeof(UHFReaderModule.Reader);
+                var methods = readerType.GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
+                    .Where(m => !m.IsSpecialName && m.DeclaringType == readerType)
+                    .OrderBy(m => m.Name);
+
+                foreach (var method in methods)
+                {
+                    var parameters = method.GetParameters();
+                    var paramStr = string.Join(", ", parameters.Select(p => $"{p.ParameterType.Name} {p.Name}"));
+                    output.AppendLine($"  {method.Name}({paramStr})");
+                }
+            }
+
+            output.AppendLine("\n=== HOW IT WORKS ===");
+            output.AppendLine("This reader uses AUTOMATIC callback-based scanning:");
+            output.AppendLine("✅ Once connected, the reader continuously scans");
+            output.AppendLine("✅ Tags are detected automatically via callback");
+            output.AppendLine("✅ No manual start/stop needed");
+            output.AppendLine("✅ Just hold tags near the antenna!");
+
+            output.AppendLine("\n=== TROUBLESHOOTING ===");
+            if (_uhfService == null)
+            {
+                output.AppendLine("1. Navigate to /RFID/Reader page first");
+            }
+            else if (!_uhfService.IsConnected)
+            {
+                output.AppendLine("❌ Reader not connected:");
+                output.AppendLine($"   1. Verify reader is at {READER_IP}:{READER_PORT}");
+                output.AppendLine("   2. Check reader is powered on");
+                output.AppendLine("   3. Verify network cable connected");
+                output.AppendLine($"   4. Try: ping {READER_IP}");
+                output.AppendLine("   5. Check Windows Firewall");
+                output.AppendLine("   6. Verify reader supports TCP connection on port 2022");
+            }
+            else if (_uhfService.TagCount == 0)
+            {
+                output.AppendLine("✅ Reader connected and scanning automatically!");
+                output.AppendLine("   → Hold RFID tag VERY close to antenna (2-3 inches)");
+                output.AppendLine("   → Check reader LED indicator for activity");
+                output.AppendLine("   → Verify tags are UHF (860-960 MHz)");
+                output.AppendLine("   → Try test endpoint: /RFID/Test");
+                output.AppendLine("   → Check antenna cable connection");
+                output.AppendLine("   → Some readers need to be 'armed' first");
+            }
+            else
+            {
+                output.AppendLine("✅ Everything working correctly!");
+                output.AppendLine($"   {_uhfService.TagCount} tag(s) detected successfully");
+            }
+
+            output.AppendLine("\n=== TEST ENDPOINTS ===");
+            output.AppendLine("/RFID/Test - Add manual test tag");
+            output.AppendLine("/RFID/GetData - Get current tag data (JSON)");
+            output.AppendLine("/RFID/DiagnosticStatus - This page");
+
+            return Content(output.ToString(), "text/plain");
+        }
+
+        /// <summary>
+        /// Ensure RFID service is initialized and connected
+        /// </summary>
+        private void EnsureRfidServiceInitialized()
+        {
+            lock (_serviceLock)
+            {
+                if (_uhfService == null)
+                {
+                    Console.WriteLine("🔧 Initializing UHF RFID Service...");
+                    _uhfService = new UhfRfidService();
+                }
+
+                if (!_uhfService.IsConnected)
+                {
+                    Console.WriteLine($"🔌 Connecting to reader at {READER_IP}:{READER_PORT}...");
+                    bool connected = _uhfService.Connect(READER_IP, READER_PORT);
+
+                    if (connected)
+                    {
+                        Console.WriteLine("✅ Reader connected and AUTO-SCANNING via callback!");
+                        Console.WriteLine("   📡 Tags will be detected automatically");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"❌ Failed to connect to {READER_IP}:{READER_PORT}");
+                    }
+                }
             }
         }
     }

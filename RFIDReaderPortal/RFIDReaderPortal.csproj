@@ -3,11 +3,19 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
+	  <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    <PackageReference Include="System.IO.Ports" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="UHFReader288">
+      <HintPath>..\..\..\Downloads\RFG CC- 04 new+SDK\RFG CC-04 E710 SDK\SDK\C#\x64\UHFReader288.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>
