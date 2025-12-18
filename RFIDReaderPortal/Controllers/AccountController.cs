@@ -34,12 +34,12 @@ public class AccountController : Controller
                 model.SessionId = GenerateSessionId();
                 model.Username = model.Email;
                 string deviceid = "";
-               
+
                 var readerStatus = await _rfidDiscoveryService.DiscoverRFIDReadersAsync();
                 List<DeviceConfigurationDto> data1 = readerStatus.IpAddresses
                  .Select(ip => new DeviceConfigurationDto
                  {
-                     
+
                      DeviceId = ip,                     // IP Address
                      statusmessage = readerStatus.StatusMessage // Status Message for all IPs
                  })
@@ -54,10 +54,10 @@ public class AccountController : Controller
                 else if (string.IsNullOrEmpty(deviceid) && !readerStatus.IpAddresses.Any())
                 {
                     // If no IP addresses are found, set a default value or handle the error
-                    deviceid = "No IP address found"; 
-                                                     
+                    deviceid = "No IP address found";
+
                 }
-              // Assign the deviceid to model
+                // Assign the deviceid to model
                 model.IpAddress = deviceid;
 
 
@@ -111,7 +111,7 @@ public class AccountController : Controller
         }
         return View(model);
     }
-     
+
     private async Task<HttpResponseMessage> LoginUser(LoginModel loginDto)
     {
         var client = _clientFactory.CreateClient("ApiClient");

@@ -40,7 +40,7 @@ namespace RFIDReaderPortal.Services
             var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-            
+
             var response = await _httpClient.SendAsync(request);
 
             if (response.IsSuccessStatusCode)
@@ -127,30 +127,31 @@ namespace RFIDReaderPortal.Services
                     }).ToList();
 
                 // Decide lap count based on event
-                int totalLaps = eventName == "1600" ? 4 :
-                                eventName == "800" ? 2 :
+                int totalLaps = eventName == "1600" ? 5 :
+                                eventName == "800" ? 3 :
                                 1;
 
                 // Prepare final request data
                 var requestData = groupedData.Select(x => new
                 {
-                    RFIDdtagata = x.TagId,
+                   RFIDdtagata = x.TagId,
+                    //Lap1 = x.Laps.Count >= 1 && x.Laps[0].Timestamp.HasValue ? x.Laps[0].Timestamp.Value.ToString("HH:mm:ss:fff") : null,
+                    //Lap2 = x.Laps.Count >= 2 && x.Laps[1].Timestamp.HasValue ? x.Laps[1].Timestamp.Value.ToString("HH:mm:ss:fff") : null,
+                    //Lap3 = x.Laps.Count >= 3 && x.Laps[2].Timestamp.HasValue ? x.Laps[2].Timestamp.Value.ToString("HH:mm:ss:fff") : null,
+                    //Lap4 = x.Laps.Count >= 4 && x.Laps[3].Timestamp.HasValue ? x.Laps[3].Timestamp.Value.ToString("HH:mm:ss:fff") : null,
+                    //Lap5 = x.Laps.Count >= 5 && x.Laps[4].Timestamp.HasValue ? x.Laps[4].Timestamp.Value.ToString("HH:mm:ss:fff") : null,
 
                     Lap1 = x.Laps.Count >= 1 ? x.Laps[0].Timestamp.ToString("HH:mm:ss:fff") : null,
                     Lap2 = x.Laps.Count >= 2 ? x.Laps[1].Timestamp.ToString("HH:mm:ss:fff") : null,
                     Lap3 = x.Laps.Count >= 3 ? x.Laps[2].Timestamp.ToString("HH:mm:ss:fff") : null,
                     Lap4 = x.Laps.Count >= 4 ? x.Laps[3].Timestamp.ToString("HH:mm:ss:fff") : null,
+                    Lap5 = x.Laps.Count >= 5 ? x.Laps[4].Timestamp.ToString("HH:mm:ss:fff") : null,
+
 
                     TotalLaps = totalLaps,
-
-                    // Send only required laps
-                    AllLaps = x.Laps
-                        .Take(totalLaps)
-                        .Select(l => l.Timestamp.ToString("HH:mm:ss:fff"))
-                        .ToList(),
-
                     EventName = eventName
                 }).ToList();
+
 
                 // Send request
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
