@@ -139,12 +139,12 @@ namespace RFIDReaderPortal.Controllers
 
                 foreach (var item in ipDataResponse)
                 {
-                    if (!string.IsNullOrEmpty(item.EventId))
-                        Response.Cookies.Append("EventId", item.EventId);
+                    //if (!string.IsNullOrEmpty(item.EventId))
+                    //    Response.Cookies.Append("EventId", item.eventName);
                     if (!string.IsNullOrEmpty(item.Location))
                         Response.Cookies.Append("Location", item.Location);
                     if (!string.IsNullOrEmpty(item.eventName))
-                        Response.Cookies.Append("EventName", item.eventName);
+                        Response.Cookies.Append("EventName", item.EventId);
                 }
 
                 if (ipDataResponse.Count == 0)
@@ -315,7 +315,7 @@ namespace RFIDReaderPortal.Controllers
                 string recruitid = Request.Cookies["recruitid"];
                 string deviceId = Request.Cookies["DeviceId"];
                 string location = Request.Cookies["Location"];
-                string eventName = Request.Cookies["EventName"];
+                string eventName = Request.Cookies["EventId"];
                 string ipaddress = Request.Cookies["IpAddress"];
                 string sesionid = Request.Cookies["sessionid"];
 
@@ -435,6 +435,7 @@ namespace RFIDReaderPortal.Controllers
             string deviceId = Request.Cookies["DeviceId"];
             string location = Request.Cookies["Location"];
             string eventName = Request.Cookies["EventName"];
+            string eventId = Request.Cookies["EventId"];
             string ipaddress = Request.Cookies["IpAddress"];
             string sesionid = Request.Cookies["sessionid"];
 

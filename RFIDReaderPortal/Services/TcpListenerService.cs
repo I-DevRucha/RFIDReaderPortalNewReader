@@ -142,7 +142,7 @@ namespace RFIDReaderPortal.Services
                             }
                             else if ((now - existing.Timestamp) > _duplicatePreventionWindow)
                             {
-                                if (_eventName == "100 Meter Running")
+                                if (_eventName == "9e2fe2f2-6e72-4a28-815a-b57a19c4ec8b")
                                 {
                                     // ✅ ALWAYS update time for 100 meter
                                     existing.Timestamp = now;
@@ -175,8 +175,8 @@ namespace RFIDReaderPortal.Services
                                     //                    }
 
                                     int maxLaps =
-                                        _eventName == "1600 Meter Running" ? 5 :
-                                        _eventName == "800 Meter Running" ? 3 :
+                                        _eventName == "aa03ea6b-ff0e-4fb0-b163-44a4e50ee5f5" ? 5 :
+                                        _eventName == "a4451446-6962-46a1-859d-0157374ba913" ? 3 :
                                         1;
 
                                     if (existing.LapTimes.Count < maxLaps)

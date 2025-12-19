@@ -127,8 +127,8 @@ namespace RFIDReaderPortal.Services
                     }).ToList();
 
                 // Decide lap count based on event
-                int totalLaps = eventName == "1600" ? 5 :
-                                eventName == "800" ? 3 :
+                int totalLaps = eventName == "aa03ea6b-ff0e-4fb0-b163-44a4e50ee5f5" ? 5 :
+                                eventName == "a4451446-6962-46a1-859d-0157374ba913" ? 3 :
                                 1;
 
                 // Prepare final request data
