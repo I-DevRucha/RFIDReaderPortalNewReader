@@ -1,20 +1,19 @@
-﻿
-
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
 using System.Net;
 using System.Text;
 using RFIDReaderPortal.Models;
+using System.Collections.Concurrent;
 
 namespace RFIDReaderPortal.Services
 {
     public class TcpListenerService : ITcpListenerService
     {
         private TcpListener _tcpListener;
-        private RfidData[] _receivedData;
+        private ConcurrentDictionary<string, RfidData> _receivedDataDict;
         private string[] _hexString;
-        private int _dataCount;
         private int _hexdataCount;
         private readonly object _lock = new object();
+        private readonly object _hexLock = new object();
 
         private string _accessToken;
         private string _userid;
@@ -27,21 +26,27 @@ namespace RFIDReaderPortal.Services
 
         private DateTime _lastClearTime = DateTime.MinValue;
         private readonly IApiService _apiService;
+        private readonly ILogger<TcpListenerService> _logger;
 
-        private readonly TimeSpan _duplicatePreventionWindow = TimeSpan.FromSeconds(5);
+        // Reduced window for better tag detection
+        private readonly TimeSpan _duplicatePreventionWindow = TimeSpan.FromSeconds(2);
 
         public bool IsRunning { get; private set; }
 
         private const int MAX_DATA_COUNT = 1000;
+        private const int BUFFER_SIZE = 16384; // Increased to 16KB
         private readonly List<RfidData> _storedRfidData = new List<RfidData>();
 
-        public TcpListenerService(IApiService apiService, int port = 9090)
+        // Buffer to accumulate incomplete hex data
+        private StringBuilder _hexBuffer = new StringBuilder();
+
+        public TcpListenerService(IApiService apiService, ILogger<TcpListenerService> logger, int port = 9090)
         {
-            _apiService = apiService;
+            _apiService = apiService ?? throw new ArgumentNullException(nameof(apiService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
             _tcpListener = new TcpListener(IPAddress.Any, port);
-            _receivedData = new RfidData[MAX_DATA_COUNT];
+            _receivedDataDict = new ConcurrentDictionary<string, RfidData>();
             _hexString = new string[MAX_DATA_COUNT];
-            _dataCount = 0;
             _hexdataCount = 0;
         }
 
@@ -66,6 +71,7 @@ namespace RFIDReaderPortal.Services
             {
                 _tcpListener.Start();
                 IsRunning = true;
+                _logger.LogInformation("TCP Listener started on port 9090");
                 Task.Run(async () => await ListenAsync());
             }
         }
@@ -76,6 +82,7 @@ namespace RFIDReaderPortal.Services
             {
                 _tcpListener.Stop();
                 IsRunning = false;
+                _logger.LogInformation("TCP Listener stopped");
             }
         }
 
@@ -83,224 +90,315 @@ namespace RFIDReaderPortal.Services
         {
             while (IsRunning)
             {
-                var client = await _tcpListener.AcceptTcpClientAsync();
-                _ = Task.Run(() => ProcessClientAsync(client));
+                try
+                {
+                    var client = await _tcpListener.AcceptTcpClientAsync();
+                    _logger.LogInformation($"Client connected from {client.Client.RemoteEndPoint}");
+                    _ = Task.Run(() => ProcessClientAsync(client));
+                }
+                catch (Exception ex)
+                {
+                    if (IsRunning)
+                    {
+                        _logger.LogError(ex, "Error accepting client connection");
+                    }
+                }
             }
         }
+
         private async Task ProcessClientAsync(TcpClient client)
-{
-    using (var stream = client.GetStream())
-    {
-        var buffer = new byte[4096];
-
-        while (client.Connected)
         {
-            int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-            if (bytesRead <= 0) continue;
+            using (client)
+            using (var stream = client.GetStream())
+            {
+                var buffer = new byte[BUFFER_SIZE];
+                var clientBuffer = new StringBuilder();
 
-            // 1️⃣ RAW → HEX
-            string hexData = BitConverter.ToString(buffer, 0, bytesRead)
-                .Replace("-", "")
-                .ToUpperInvariant();
+                try
+                {
+                    stream.ReadTimeout = 5000; // 5 second timeout
 
-            // 2️⃣ Extract EPCs
+                    while (client.Connected && IsRunning)
+                    {
+                        int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+
+                        if (bytesRead <= 0)
+                        {
+                            _logger.LogInformation("Client disconnected");
+                            break;
+                        }
+
+                        // Convert to HEX immediately
+                        string hexData = BytesToHex(buffer, bytesRead);
+
+                        _logger.LogDebug($"Received {bytesRead} bytes: {hexData.Substring(0, Math.Min(100, hexData.Length))}...");
+
+                        // Store hex data for debugging
+                        lock (_hexLock)
+                        {
+                            if (_hexdataCount < MAX_DATA_COUNT)
+                            {
+                                _hexString[_hexdataCount++] = hexData;
+                            }
+                        }
+                        ProcessHexBuffer(hexData);
+
+                        // Append to buffer in case of fragmented messages
+                        // clientBuffer.Append(hexData);
+
+                        // Process accumulated buffer
+                        //ProcessHexBuffer(clientBuffer.ToString());
+
+                        // Keep only last 1000 characters to prevent memory issues
+                        //if (clientBuffer.Length > 1000)
+                        //{
+                        //    clientBuffer.Clear();
+                        //}
+                    }
+                }
+                catch (IOException ioEx)
+                {
+                    _logger.LogWarning($"IO Exception in client processing: {ioEx.Message}");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error processing client data");
+                }
+            }
+        }
+        private static string BytesToHex(byte[] buffer, int length)
+        {
+            char[] c = new char[length * 2];
+            int b;
+
+            for (int i = 0; i < length; i++)
+            {
+                b = buffer[i] >> 4;
+                c[i * 2] = (char)(55 + b + (((b - 10) >> 31) & -7));
+
+                b = buffer[i] & 0xF;
+                c[i * 2 + 1] = (char)(55 + b + (((b - 10) >> 31) & -7));
+            }
+
+            return new string(c);
+        }
+
+        private void ProcessHexBuffer(string hexData)
+        {
+            if (string.IsNullOrWhiteSpace(hexData))
+                return;
+
+            // Extract all EPCs from the hex data
             var epcs = ExtractEpcs(hexData);
-            if (epcs.Count == 0) continue;
+
+            if (epcs.Count == 0)
+            {
+                _logger.LogDebug("No EPCs found in data");
+                return;
+            }
+
+            _logger.LogInformation($"Extracted {epcs.Count} unique EPCs");
 
             var now = DateTime.Now;
 
-                    foreach (var epc in epcs)
+            foreach (var epc in epcs)
+            {
+                ProcessTag(epc, now);
+            }
+        }
+
+        private void ProcessTag(string epc, DateTime timestamp)
+        {
+            bool shouldStore = false;
+            RfidData rfidData;
+
+            // Use concurrent dictionary for better thread safety
+            //rfidData = _receivedDataDict.GetOrAdd(epc, key => new RfidData
+            //{
+            //    TagId = key,
+            //    Timestamp = timestamp,
+            //    LapTimes = new List<DateTime> { timestamp }
+            //});
+            bool exists = _receivedDataDict.TryGetValue(epc, out rfidData);
+
+            if (!exists)
+            {
+                rfidData = new RfidData
+                {
+                    TagId = epc,
+                    Timestamp = timestamp,
+                    LapTimes = new List<DateTime> { timestamp }
+                };
+                _receivedDataDict[epc] = rfidData;
+                shouldStore = true;
+            }
+
+            // Check if this is a new lap (not the initial creation)
+            if (rfidData.Timestamp != timestamp)
+            {
+                var timeSinceLastScan = timestamp - rfidData.Timestamp;
+
+                if (timeSinceLastScan > _duplicatePreventionWindow)
+                {
+                    if (_eventName == "9e2fe2f2-6e72-4a28-815a-b57a19c4ec8b") // 100m
                     {
-                        bool shouldStore = false;
-                        RfidData existing;
+                        // Always update for 100m (single lap)
+                        rfidData.Timestamp = timestamp;
+                        if (rfidData.LapTimes.Count == 0)
+                            rfidData.LapTimes.Add(timestamp);
+                        else
+                            rfidData.LapTimes[0] = timestamp;
 
-                        lock (_lock)
-                        {
-                            existing = _receivedData
-                                .Take(_dataCount)
-                                .FirstOrDefault(x => x.TagId == epc);
-
-                            if (existing == null)
-                            {
-                                // FIRST SCAN
-                                existing = new RfidData
-                                {
-                                    TagId = epc,
-                                    Timestamp = now,
-                                    LapTimes = new List<DateTime> { now }
-                                };
-
-                                if (_dataCount < MAX_DATA_COUNT)
-                                    _receivedData[_dataCount++] = existing;
-                                else
-                                {
-                                    Array.Copy(_receivedData, 1, _receivedData, 0, MAX_DATA_COUNT - 1);
-                                    _receivedData[MAX_DATA_COUNT - 1] = existing;
-                                }
-
-                                shouldStore = true;
-                            }
-                            else if ((now - existing.Timestamp) > _duplicatePreventionWindow)
-                            {
-                                if (_eventName == "9e2fe2f2-6e72-4a28-815a-b57a19c4ec8b")
-                                {
-                                    // ✅ ALWAYS update time for 100 meter
-                                    existing.Timestamp = now;
-
-                                    if (existing.LapTimes.Count == 0)
-                                        existing.LapTimes.Add(now);
-                                    else
-                                        existing.LapTimes[0] = now; // overwrite
-
-                                    shouldStore = true;
-                                }
-                                else
-                                {
-                                    //                    int maxLaps = _eventName == "1600 Meter Running" ? 5 :
-                                    //_eventName == "800 Meter Running" ? 3 :
-                                    //1;
-
-                                    //                    // Make sure LapTimes list has enough capacity
-                                    //                    while (existing.LapTimes.Count < maxLaps)
-                                    //                        existing.LapTimes.Add(null);
-
-                                    //                    // Find first empty slot (null) for this scan
-                                    //                    int nextLapIndex = existing.LapTimes.FindIndex(t => t == null);
-
-                                    //                    if (nextLapIndex >= 0)
-                                    //                    {
-                                    //                        existing.LapTimes[nextLapIndex] = now; // assign current lap time
-                                    //                        existing.Timestamp = now;
-                                    //                        shouldStore = true;
-                                    //                    }
-
-                                    int maxLaps =
-                                        _eventName == "aa03ea6b-ff0e-4fb0-b163-44a4e50ee5f5" ? 5 :
-                                        _eventName == "a4451446-6962-46a1-859d-0157374ba913" ? 3 :
-                                        1;
-
-                                    if (existing.LapTimes.Count < maxLaps)
-                                    {
-                                        existing.Timestamp = now;
-                                        existing.LapTimes.Add(now);
-                                        shouldStore = true;
-                                    }
-                                }
-                            }
-
-                            //else if ((now - existing.Timestamp) > _duplicatePreventionWindow)
-                            //{
-                            //    int maxLaps =
-                            //        _eventName == "1600 Meter Running" ? 4 :
-                            //        _eventName == "800 Meter Running" ? 2 :
-                            //        1; // 100 Meter
-
-                            //    if (existing.LapTimes.Count < maxLaps)
-                            //    {
-                            //        existing.Timestamp = now;
-                            //        existing.LapTimes.Add(now);
-                            //        shouldStore = true;
-                            //    }
-                            //}
-
-                            // ONLY store when something actually changed
-                            if (shouldStore)
-                            {
-                                _storedRfidData.Add(new RfidData
-                                {
-                                    TagId = existing.TagId,
-                                    Timestamp = existing.Timestamp,
-                                    LapTimes = new List<DateTime>(existing.LapTimes)
-                                });
-                            }
-                        }
-
-                        Console.WriteLine($"🏷️ EPC RECEIVED: {epc}");
+                        shouldStore = true;
+                        _logger.LogInformation($"Updated 100m time for tag {epc}: {timestamp:HH:mm:ss:fff}");
                     }
+                    else
+                    {
+                        int maxLaps = _eventName == "aa03ea6b-ff0e-4fb0-b163-44a4e50ee5f5" ? 5 :
+                                      _eventName == "a4451446-6962-46a1-859d-0157374ba913" ? 3 : 1;
 
+                        if (rfidData.LapTimes.Count < maxLaps)
+                        {
+                            rfidData.Timestamp = timestamp;
+                            rfidData.LapTimes.Add(timestamp);
+                            shouldStore = true;
+                            _logger.LogInformation($"Recorded lap {rfidData.LapTimes.Count} for tag {epc}: {timestamp:HH:mm:ss:fff}");
+                        }
+                        else
+                        {
+                            _logger.LogDebug($"Tag {epc} already has maximum laps ({maxLaps})");
+                        }
+                    }
+                }
+                else
+                {
+                    _logger.LogDebug($"Ignoring duplicate scan for {epc} (within {_duplicatePreventionWindow.TotalSeconds}s window)");
                 }
             }
-}
-
-
-
-        public async Task InsertStoredRfidDataAsync()
-        {
-            List<RfidData> dataToInsert;
-
-            lock (_lock)
+            else
             {
-                dataToInsert = new List<RfidData>(_storedRfidData);
-                _storedRfidData.Clear();
+                // This was the initial creation
+                shouldStore = true;
+                _logger.LogInformation($"New tag detected: {epc} at {timestamp:HH:mm:ss:fff}");
             }
 
-            if (dataToInsert.Count > 0)
+            // Store for batch insertion
+            if (shouldStore)
             {
-                await _apiService.PostRFIDRunningLogAsync(
-                    _accessToken, _userid, _recruitid, _deviceId,
-                    _location, _eventName, dataToInsert,
-                    _sessionid, _ipaddress
-                );
+                lock (_storedRfidData)
+                {
+                    _storedRfidData.Add(new RfidData
+                    {
+                        TagId = rfidData.TagId,
+                        Timestamp = rfidData.Timestamp,
+                        LapTimes = new List<DateTime>(rfidData.LapTimes)
+                    });
+                }
             }
         }
         private static List<string> ExtractEpcs(string hex)
         {
-            const int EPC_LEN = 24; // 12 bytes
+            const int EPC_LEN = 24;
             const string EPC_PREFIX = "E280117000000212AC9";
 
-            HashSet<string> result = new();
+            HashSet<string> result = new HashSet<string>();
 
             if (string.IsNullOrWhiteSpace(hex))
                 return result.ToList();
 
-            hex = hex.ToUpperInvariant();
-
-            for (int i = 0; i <= hex.Length - EPC_LEN; i += 2)
+            int index = 0;
+            while ((index = hex.IndexOf(EPC_PREFIX, index, StringComparison.Ordinal)) != -1)
             {
-                string candidate = hex.Substring(i, EPC_LEN);
-
-                if (
-                    candidate.StartsWith(EPC_PREFIX) &&
-                    candidate.All(c => "0123456789ABCDEF".Contains(c))
-                )
+                if (index + EPC_LEN <= hex.Length)
                 {
-                    result.Add(candidate);
+                    string epc = hex.Substring(index, EPC_LEN);
+                    result.Add(epc);
                 }
+                index += EPC_PREFIX.Length;
             }
 
             return result.ToList();
         }
 
+        //private static List<string> ExtractEpcs(string hex)
+        //{
+        //    const int EPC_LEN = 24; // 12 bytes = 24 hex chars
+        //    const string EPC_PREFIX = "E280117000000212AC9";
 
+        //    HashSet<string> result = new HashSet<string>();
 
+        //    if (string.IsNullOrWhiteSpace(hex))
+        //        return result.ToList();
+
+        //    hex = hex.ToUpperInvariant();
+
+        //    // Search for EPCs with the exact prefix using sliding window
+        //    for (int i = 0; i <= hex.Length - EPC_LEN; i++)
+        //    {
+        //        string candidate = hex.Substring(i, EPC_LEN);
+
+        //        // Only accept tags with exact prefix
+        //        if (candidate.StartsWith(EPC_PREFIX) &&
+        //            candidate.All(c => "0123456789ABCDEF".Contains(c)))
+        //        {
+        //            result.Add(candidate);
+        //        }
+        //    }
+
+        //    return result.ToList();
+        //}
+        public async Task InsertStoredRfidDataAsync()
+        {
+            List<RfidData> dataToInsert;
+
+            lock (_storedRfidData)
+            {
+                if (_storedRfidData.Count == 0)
+                {
+                    _logger.LogInformation("No stored RFID data to insert");
+                    return;
+                }
+
+                dataToInsert = new List<RfidData>(_storedRfidData);
+                _storedRfidData.Clear();
+            }
+
+            _logger.LogInformation($"Inserting {dataToInsert.Count} RFID records");
+
+            await _apiService.PostRFIDRunningLogAsync(
+                _accessToken, _userid, _recruitid, _deviceId,
+                _location, _eventName, dataToInsert,
+                _sessionid, _ipaddress
+            );
+        }
 
         public void ClearData()
         {
-            lock (_lock)
+            _receivedDataDict.Clear();
+            lock (_hexLock)
             {
-                Array.Clear(_receivedData, 0, _receivedData.Length);
-                _dataCount = 0;
-                _lastClearTime = DateTime.Now;
+                Array.Clear(_hexString, 0, _hexString.Length);
+                _hexdataCount = 0;
             }
+            _lastClearTime = DateTime.Now;
+            _hexBuffer.Clear();
+            _logger.LogInformation("All RFID data cleared");
         }
 
         public RfidData[] GetReceivedData()
         {
-            lock (_lock)
-            {
-                return _receivedData.Take(_dataCount)
-                    .Where(d => d.Timestamp > _lastClearTime)
-                    .ToArray();
-            }
+            return _receivedDataDict.Values
+                .Where(d => d.Timestamp > _lastClearTime)
+                .OrderBy(d => d.TagId)
+                .ToArray();
         }
 
         public string[] GetHexData()
         {
-            lock (_lock)
+            lock (_hexLock)
             {
                 return _hexString.Take(_hexdataCount).ToArray();
             }
         }
     }
 }
-
