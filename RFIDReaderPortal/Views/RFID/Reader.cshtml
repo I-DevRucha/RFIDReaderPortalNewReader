@@ -1,4 +1,7 @@
-﻿@model RFIDReaderPortal.Models.RFIDViewModel
+﻿@using RFIDReaderPortal
+@using RFIDReaderPortal.Models
+@addTagHelper *, Microsoft.AspNetCore.Mvc.TagHelpers
+@model RFIDReaderPortal.Models.RFIDViewModel
 @{
     ViewData["Title"] = "RFID Reader Listener Section";
 
@@ -219,7 +222,8 @@
 
             $(document).ready(function () {
                 let updateInterval;
-                let isRunning = @Json.Serialize(Model.IsRunning);
+                let isRunning = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.IsRunning));
+
 
                 $('#clearButton').click(function () {
                     $.ajax({
@@ -313,41 +317,6 @@
             }
         }
               
-
-                function toggleListenerState(start) {
-                    isRunning = start;
-                    if (start) {
-                        // First clear data
-                        $.ajax({
-                            url: '@Url.Action("ClearData", "RFID")',
-                            type: 'POST',
-                            success: function (response) {
-                                if (response.success) {
-                                    $('#rfidDataBody').empty();
-                                    $('#debugInfo').text('Data cleared successfully. Starting RFID listener...');
-
-                                    // Now start listening
-                                    updateRfidData();
-                                    $('#startButton').prop('disabled', true);
-                                    $('#stopButton').prop('disabled', false);
-                                    $('#clearButton').prop('disabled', true);
-                                } else {
-                                    $('#debugInfo').text('Failed to clear data.');
-                                }
-                            },
-                            error: function (xhr, status, error) {
-                                console.error('Error clearing data:', error);
-                                $('#debugInfo').text('Error clearing data: ' + error);
-                            }
-                        });
-                    } else {
-                        $('#debugInfo').text('RFID listener stopped');
-                        $('#startButton').prop('disabled', false);
-                        $('#stopButton').prop('disabled', true);
-                        $('#clearButton').prop('disabled', false);
-                        previousTagIds = [];
-                    }
-                }
                 function toggleListenerState(start) {
                     isRunning = start;
                     if (start) {

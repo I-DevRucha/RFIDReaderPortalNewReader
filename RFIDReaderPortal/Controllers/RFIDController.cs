@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 using System.Collections;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Diagnostics;
-using System.Net;
+
 
 namespace RFIDReaderPortal.Controllers
 {
@@ -40,7 +40,7 @@ namespace RFIDReaderPortal.Controllers
             _rfidDiscoveryService = rfidDiscoveryService ?? throw new ArgumentNullException(nameof(rfidDiscoveryService));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _tcpListenerService = tcpListenerService ?? throw new ArgumentNullException(nameof(tcpListenerService));
-            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+           _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
             _baseUrl = configuration["ApiBaseUrl"];
             //// Use IConfiguration to get the ApiBaseUrl
@@ -169,7 +169,7 @@ namespace RFIDReaderPortal.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred in Configuration");
+                //_logger.LogError(ex, "Error occurred in Configuration");
                 return View("Error", new ErrorViewModel { RequestId = System.Diagnostics.Activity.Current?.Id ?? HttpContext.TraceIdentifier });
             }
         }
@@ -220,7 +220,7 @@ namespace RFIDReaderPortal.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred in SubmitButton");
+              //  _logger.LogError(ex, "Error occurred in SubmitButton");
                 return StatusCode(500, "Internal server error");
             }
         }
@@ -376,7 +376,7 @@ namespace RFIDReaderPortal.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred in Reader action");
+               // _logger.LogError(ex, "Error occurred in Reader action");
                 return View("Error", new ErrorViewModel { RequestId = System.Diagnostics.Activity.Current?.Id ?? HttpContext.TraceIdentifier });
             }
         }
@@ -526,7 +526,7 @@ namespace RFIDReaderPortal.Controllers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error occurred while deleting RFID records");
+              //  _logger.LogError(ex, "Error occurred while deleting RFID records");
                 return StatusCode(500, new { success = false, message = "An error occurred while deleting RFID records." });
             }
         }
